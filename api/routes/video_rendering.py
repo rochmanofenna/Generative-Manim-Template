@@ -267,7 +267,7 @@ def render_video():
                     os.path.dirname(os.path.realpath(__file__)),
                     f"{file_class or 'GenScene'}.mp4"
                 )
-                print(f"2222====={os.path.dirname(os.path.realpath(__file__))} | video_file_path at: {video_file_path}")
+                #print(f"2222====={os.path.dirname(os.path.realpath(__file__))} | video_file_path at: {video_file_path}")
 
                 # Looking for video file at: {video_file_path}
                 
@@ -277,8 +277,6 @@ def render_video():
                         os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
                         f"{file_class or 'GenScene'}.mp4"
                     )
-                    print(f"3333====={os.path.dirname(os.path.dirname(os.path.realpath(__file__)))} | video_file_path at: {video_file_path}")
-
                     # New video file path is: {video_file_path}
 
                 if os.path.exists(video_file_path):
@@ -307,7 +305,6 @@ def render_video():
                     video_url = upload_to_google_storage(
                         video_file_path, video_storage_file_name
                     )
-                print(f"Video URL: {video_url}")
                 if stream:
                     yield f'{{ "video_url": "{video_url}" }}\n'
                     sys.stdout.flush()
@@ -329,7 +326,7 @@ def render_video():
             # Remove the temporary Python file
             try:
                 if os.path.exists(file_path):
-                    # os.remove(file_path)
+                    os.remove(file_path)
                     print(f"Removed temporary file: {file_path}")
                 # Remove the video file
                 if os.path.exists(video_file_path):
