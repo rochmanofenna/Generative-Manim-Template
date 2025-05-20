@@ -9,7 +9,7 @@ code_generation_bp = Blueprint('code_generation', __name__)
 def generate_code():
     body = request.json
     prompt_content = body.get("prompt", "")
-    model = body.get("model", "gpt-4o")
+    model = body.get("model", "gpt-4.1-mini")
 
     general_system_prompt = """
 You are an assistant that knows about Manim. Manim is a mathematical animation engine that is used to create videos programmatically.

@@ -9,6 +9,10 @@ echo "IMAGE_TAG:$IMAGE_TAG"
 DOCKER_PULL_REGISTRY=${DOCKER_PULL_REGISTRY:-10.168.0.2:5000}
 IMAGE_NAME=cfa/agent-manim
 SERVICE_NAME="cfa-manim-service"
+HOST_PORT=8089
+DOCKER_PORT=8089
+DOCKER_VOLUME_SRC=/home/ops/jenkins_job/agent-manim
+DOCKER_VOLUME_DST=/config
 
 # pull image
 echo "docker pull ${DOCKER_PULL_REGISTRY}/${IMAGE_NAME}:$IMAGE_TAG"
@@ -30,8 +34,7 @@ fi
 
 # docker run
 echo "docker run..."
-docker run --add-host=host.docker.internal:host-gateway -d --restart unless-stopped --name $SERVICE_NAME \
-        -v $DOCKER_VOLUME_SRC:$DOCKER_VOLUME_DST \
+docker run --add-host=host.docker.internal:host-gateway -d --restart unless-stopped --env-file  /home/ops/jenkins_job/agent-manim/.env --name $SERVICE_NAME \
 	-p $HOST_PORT:$DOCKER_PORT \
         ${DOCKER_PULL_REGISTRY}/$IMAGE_NAME:$IMAGE_TAG
 if [ $? -eq 0 ]; then

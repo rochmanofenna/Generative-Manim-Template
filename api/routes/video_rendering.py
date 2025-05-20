@@ -155,19 +155,16 @@ def render_video():
     if not code:
         return jsonify(error="No code provided"), 400
     #code = request.json.get("code")
-    file_name = request.json.get("file_name")
-    file_class = request.json.get("file_class")
+    #file_name = request.json.get("file_name")
+    file_class = request.json.get("file_class", "GenScene")
 
     user_id = request.json.get("user_id") or str(uuid.uuid4())
     project_name = request.json.get("project_name")
     iteration = request.json.get("iteration")
-
     # Aspect Ratio can be: "16:9" (default), "1:1", "9:16"
     aspect_ratio = request.json.get("aspect_ratio")
-
     # Stream the percentage of animation it shown in the error
     stream = request.json.get("stream", False)
-
     video_storage_file_name = f"video-{user_id}-{project_name}-{iteration}"
     # Determine frame size and width based on aspect ratio
     frame_size, frame_width = get_frame_config(aspect_ratio)
@@ -183,7 +180,7 @@ def render_video():
     public_dir = os.path.join(api_dir, "routes")
     os.makedirs(public_dir, exist_ok=True)  # Ensure the public directory exists
     file_path = os.path.join(public_dir, file_name)
-    print(f"11111====={api_dir} | {public_dir} file_path at: {file_path}")
+    print(f"11111====={api_dir} | {public_dir} file_path at: {file_path} {os.path.dirname(os.path.realpath(__file__))}")
     # Write the code to the file
     with open(file_path, "w") as f:
         f.write(modified_code)
@@ -199,12 +196,12 @@ def render_video():
                 ".",
                 "--custom_folders",
             ]
-
+            current_dir = os.path.dirname(os.path.realpath(__file__)) if '__file__' in globals() else os.getcwd()
             process = subprocess.Popen(
                 command_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                cwd=os.path.dirname(os.path.realpath(__file__)),
+                cwd=current_dir,
                 text=True,
                 bufsize=1,  # Ensure the output is in text mode and line-buffered
             )
