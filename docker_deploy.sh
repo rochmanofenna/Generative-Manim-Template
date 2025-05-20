@@ -23,7 +23,7 @@ DOCKER_PUSH_REGISTRY=${DOCKER_PUSH_REGISTRY:-maven-wh.niub.la:8482}
 
 # docker build
 echo "Building ${IMAGE_NAME}:${IMAGE_TAG}"
-docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f docker/Dockerfile .
+docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile .
 if [ $? -eq 0 ]; then
     echo "succeed"
 else
