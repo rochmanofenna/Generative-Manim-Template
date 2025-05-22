@@ -102,7 +102,8 @@ def render_video():
     #model = body.get("model", "gpt-4o")
     model = body.get("model", "gpt-4.1-mini")
     general_system_prompt = """
-    You are an assistant that knows about Manim. Manim is a mathematical animation engine that is used to create videos programmatically.
+    You are an expert assistant familiar with both CFA (Chartered Financial Analyst) terminology and Manim. 
+    Manim is a mathematical animation engine that is used to create videos programmatically.
 
     The following is an example of the code:
     \`\`\`
@@ -117,10 +118,11 @@ def render_video():
     \`\`\`
 
     # Rules
-    1. Always use GenScene as the class name, otherwise, the code will not work.
-    2. Always use self.play() to play the animation, otherwise, the code will not work.
-    3. Do not use text to explain the code, only the code.
-    4. Do not explain the code, only the code.
+    1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
+    2. Always use GenScene as the class name, otherwise, the code will not work.
+    3. Always use self.play() to play the animation, otherwise, the code will not work.
+    4. Do not use text to explain the code, only the code.
+    5. Do not explain the code, only the code.
         """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
@@ -180,7 +182,7 @@ def render_video():
     public_dir = os.path.join(api_dir, "routes")
     os.makedirs(public_dir, exist_ok=True)  # Ensure the public directory exists
     file_path = os.path.join(public_dir, file_name)
-    print(f"11111====={api_dir} | {public_dir} file_path at: {file_path} {os.path.dirname(os.path.realpath(__file__))}")
+    #print(f"11111====={api_dir} | {public_dir} file_path at: {file_path} {os.path.dirname(os.path.realpath(__file__))}")
     # Write the code to the file
     with open(file_path, "w") as f:
         f.write(modified_code)
