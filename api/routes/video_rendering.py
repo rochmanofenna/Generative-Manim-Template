@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, current_app, request, Response
+from flask import Blueprint, jsonify, current_app, request, Response, send_from_directory
 import subprocess
 import os
 import re
@@ -20,12 +20,11 @@ video_rendering_bp = Blueprint("video_rendering", __name__)
 USE_LOCAL_STORAGE = False
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8080")
 
-def extract_code_from_markdown(text: str) -> str:
+def extract_code_from_markdown(raw_code: str) -> str:
     """提取 Markdown 中的代码块"""
-    match = re.search(r"```(?:python)?\n(.*?)```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text.strip()
+    match = re.search(r"```(?:python)?\n(.*?)```", raw_code, re.DOTALL)
+    code = match.group(1) if match else raw_code
+    return code.strip()
 
 def upload_to_azure_storage(file_path: str, video_storage_file_name: str) -> str:
     """
@@ -39,7 +38,6 @@ def upload_to_azure_storage(file_path: str, video_storage_file_name: str) -> str
     blob_client = blob_service_client.get_blob_client(
         container=container_name, blob=cloud_file_name
     )
-
     # Upload the video file
     with open(file_path, "rb") as data:
         blob_client.upload_blob(data, overwrite=True)
@@ -93,37 +91,30 @@ def get_frame_config(aspect_ratio):
     else:
         return (3840, 2160), 14.22
 
-
-@video_rendering_bp.route("/v1/video/rendering", methods=["POST"])
-def render_video():
-    # generate code
-    body = request.json
-    prompt_content = body.get("prompt", "")
-    #model = body.get("model", "gpt-4o")
-    model = body.get("model", "gpt-4.1-mini")
+def generate_llm_code(prompt_content: str, model: str):
     general_system_prompt = """
-    You are an expert assistant familiar with both CFA (Chartered Financial Analyst) terminology and Manim. 
-    Manim is a mathematical animation engine that is used to create videos programmatically.
+        You are an expert assistant familiar with both CFA (Chartered Financial Analyst) terminology and Manim. 
+        Manim is a mathematical animation engine that is used to create videos programmatically.
 
-    The following is an example of the code:
-    \`\`\`
-    from manim import *
-    from math import *
+        The following is an example of the code:
+        \`\`\`
+        from manim import *
+        from math import *
 
-    class GenScene(Scene):
-    def construct(self):
-        c = Circle(color=BLUE)
-        self.play(Create(c))
+        class GenScene(Scene):
+        def construct(self):
+            c = Circle(color=BLUE)
+            self.play(Create(c))
 
-    \`\`\`
+        \`\`\`
 
-    # Rules
-    1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
-    2. Always use GenScene as the class name, otherwise, the code will not work.
-    3. Always use self.play() to play the animation, otherwise, the code will not work.
-    4. Do not use text to explain the code, only the code.
-    5. Do not explain the code, only the code.
-        """
+        # Rules
+        1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
+        2. Always use GenScene as the class name, otherwise, the code will not work.
+        3. Always use self.play() to play the animation, otherwise, the code will not work.
+        4. Do not use text to explain the code, only the code.
+        5. Do not explain the code, only the code.
+    """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
         {"role": "system", "content": general_system_prompt},
@@ -138,6 +129,19 @@ def render_video():
         code = response.choices[0].message.content
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    # Extract the rest of the request data
+    if not code:
+        return jsonify(error="No code provided"), 400
+    return code
+
+@video_rendering_bp.route("/v1/video/rendering", methods=["POST"])
+def render_video():
+    # generate code
+    body = request.json
+    prompt_content = body.get("prompt", "")
+    #model = body.get("model", "gpt-4o")
+    model = body.get("model", "gpt-4.1-mini")
+
     # Get the API key from the request headers
     # api_key = request.headers.get('X-API-Key')
     
@@ -152,11 +156,7 @@ def render_video():
     
     # Now that we have a valid user_id, create a run
     # run_id = create_run_on_user(user_id, "video")
-    
-    # Extract the rest of the request data
-    if not code:
-        return jsonify(error="No code provided"), 400
-    #code = request.json.get("code")
+    code = generate_llm_code(prompt_content, model)
     #file_name = request.json.get("file_name")
     file_class = request.json.get("file_class", "GenScene")
 
@@ -176,7 +176,7 @@ def render_video():
     """
     # Create a unique file name
     file_name = f"scene_{os.urandom(2).hex()}.py"
-    
+
     # Adjust the path to point to /api/public/
     api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
     public_dir = os.path.join(api_dir, "routes")
@@ -224,7 +224,7 @@ def render_video():
                 if error:
                     print("STDERR:", error.strip())
                     error_output.append(error.strip())
-                    
+
                 # Check for critical errors
                 if "is not in the script" in error:
                     in_error = True
@@ -269,7 +269,7 @@ def render_video():
                 #print(f"2222====={os.path.dirname(os.path.realpath(__file__))} | video_file_path at: {video_file_path}")
 
                 # Looking for video file at: {video_file_path}
-                
+
                 if not os.path.exists(video_file_path):
                     #  Video file not found. Searching in parent directory...
                     video_file_path = os.path.join(
@@ -285,7 +285,7 @@ def render_video():
                     raise FileNotFoundError(f"Video file not found at {video_file_path}")
 
                 print(f"Files in video file directory: {os.listdir(os.path.dirname(video_file_path))}")
-                
+
                 if USE_LOCAL_STORAGE:
                     # Pass request.host_url if available
                     base_url = (
@@ -446,3 +446,53 @@ def download_video(video_url):
     with open(local_filename, 'wb') as f:
         f.write(response.content)
     return local_filename
+
+def to_fixed_32(s: str) -> str:
+    # 返回32个十六进制字符
+    return hashlib.md5(s.encode('utf-8')).hexdigest()
+
+@video_rendering_bp.route("/v1/video/play", methods=["GET"])
+def run_manim_render():
+    """
+    运行 Manim 渲染生成的 Python 文件并输出为视频
+    :param file_path: 生成的 Python 文件路径
+    :param output_dir: 输出视频目录
+    """
+    prompt = request.args.get("prompt")
+    video_name = to_fixed_32(prompt)
+    if not prompt:
+        return {"error": "Missing prompt"}, 400
+    model = request.args.get("model", "gpt-4.1-mini")
+    file_name = f"scene.py"
+    api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
+    public_dir = os.path.join(api_dir, "routes")
+    os.makedirs(public_dir, exist_ok=True)  # Ensure the public directory exists
+    file_path = os.path.join(public_dir, file_name)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    code = generate_llm_code(prompt, model)
+    modified_code = extract_code_from_markdown(code)
+    # Write the code to the file
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(modified_code)
+    output_dir = os.path.dirname(os.path.realpath(__file__)) if '__file__' in globals() else os.getcwd()
+    print(output_dir)
+    command = [
+        "manim",
+        "-pql",  # 使用较快预设（你也可以用 -pqh 或 -pqm）
+        file_path,
+        "GenScene",
+        "--media_dir",
+        output_dir,
+    ]
+
+    try:
+        subprocess.run(command, check=True)
+        print(f"✅ Manim 渲染完成，输出在：{output_dir}")
+        video_path = f"{output_dir}/videos/scene/480p15/"  # 你渲染生成的视频路径
+        if os.path.exists(video_path):
+            return send_from_directory(video_path, "GenScene.mp4")
+        else:
+            return {"error": "Video not found"}, 400
+    except subprocess.CalledProcessError as e:
+        return {"error": "Video not found"}, 400
