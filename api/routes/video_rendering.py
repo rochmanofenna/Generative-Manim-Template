@@ -447,10 +447,6 @@ def download_video(video_url):
         f.write(response.content)
     return local_filename
 
-def to_fixed_32(s: str) -> str:
-    # 返回32个十六进制字符
-    return hashlib.md5(s.encode('utf-8')).hexdigest()
-
 @video_rendering_bp.route("/v1/video/play", methods=["GET"])
 def run_manim_render():
     """
@@ -459,7 +455,6 @@ def run_manim_render():
     :param output_dir: 输出视频目录
     """
     prompt = request.args.get("prompt")
-    video_name = to_fixed_32(prompt)
     if not prompt:
         return {"error": "Missing prompt"}, 400
     model = request.args.get("model", "gpt-4.1-mini")

@@ -2,31 +2,35 @@ from manim import *
 
 class GenScene(Scene):
     def construct(self):
-        title = Text("Two-Stage DCF Model to Calculate Intrinsic Value", font_size=36).to_edge(UP)
-        self.play(Write(title))
+        axes = Axes(
+            x_range=[0, 40, 5],
+            y_range=[0, 120, 20],
+            x_length=7,
+            y_length=5,
+            axis_config={"include_tip": True},
+            x_axis_config={"numbers_to_include": [0, 16, 40], "label_direction": DOWN},
+            y_axis_config={"numbers_to_include": [0, 68, 120], "label_direction": LEFT},
+        ).to_edge(DOWN)
 
-        stage1 = Text("Stage 1: Forecast Free Cash Flows (FCF) during High Growth Period", font_size=24).next_to(title, DOWN, buff=0.5)
-        self.play(Write(stage1))
+        x_label = axes.get_x_axis_label("Q")
+        y_label = axes.get_y_axis_label("P")
 
-        fcf_formula = MathTex(
-            "FCF_t = FCF_0 \\times (1 + g)^t",
-            " \\quad \\text{for } t = 1, 2, ..., n"
-        ).next_to(stage1, DOWN, buff=0.5)
-        self.play(Write(fcf_formula))
+        demand_graph = axes.plot(lambda q: 100 - 2 * q, x_range=[0, 50], color=BLUE)
+        demand_label = MathTex("P=100-2Q").next_to(demand_graph.get_end(), UP)
 
-        stage2 = Text("Stage 2: Calculate Terminal Value using Perpetuity Growth Model", font_size=24).next_to(fcf_formula, DOWN, buff=1)
-        self.play(Write(stage2))
+        supply_graph = axes.plot(lambda q: 20 + 3 * q, x_range=[0, 30], color=RED)
+        supply_label = MathTex("P=20+3Q").next_to(supply_graph.get_end(), DOWN)
 
-        terminal_value = MathTex(
-            "TV_n = \\frac{FCF_{n+1}}{r - g_{LT}}",
-            "\\quad \\text{where } FCF_{n+1} = FCF_n \\times (1 + g_{LT})"
-        ).next_to(stage2, DOWN, buff=0.5)
-        self.play(Write(terminal_value))
+        equilibrium_q = 16
+        equilibrium_p = 68
+        eq_point = Dot(axes.c2p(equilibrium_q, equilibrium_p), color=GREEN)
+        eq_label = MathTex("Q^*=16,\\ P^*=68").next_to(eq_point, UP + RIGHT, buff=0.2)
 
-        discounting = Text("Discount FCFs and Terminal Value to Present Value", font_size=24).next_to(terminal_value, DOWN, buff=1)
-        self.play(Write(discounting))
+        v_line = DashedLine(axes.c2p(equilibrium_q, 0), axes.c2p(equilibrium_q, equilibrium_p), color=GREEN)
+        h_line = DashedLine(axes.c2p(0, equilibrium_p), axes.c2p(equilibrium_q, equilibrium_p), color=GREEN)
 
-        pv_formula = MathTex(
-            "Intrinsic\\ Value = \\sum_{t=1}^n \\frac{FCF_t}{(1+r)^t} + \\frac{TV_n}{(1+r)^n}"
-        ).next_to(discounting, DOWN, buff=0.5)
-        self.play(Write(pv_formula))
+        self.play(Create(axes), Write(x_label), Write(y_label))
+        self.play(Create(demand_graph), Write(demand_label))
+        self.play(Create(supply_graph), Write(supply_label))
+        self.play(Create(eq_point), Write(eq_label))
+        self.play(Create(v_line), Create(h_line))
