@@ -123,7 +123,7 @@ def generate_llm_code(prompt_content: str, model: str):
            - All LaTeX symbols must be valid and safely escaped (e.g., use \$, \%, \_, \&, avoid malformed braces {}).
            - Avoid ambiguous math expressions (ensure \frac, \sum, \text{} syntax is correct).
            
-        3. **Diagram or Plot (5-15 seconds)**  
+        3. **Diagram or Plot**  
            - If a diagram is needed (e.g., number line, axes chart, grouped dots/lines), use Manim primitives like `NumberLine`, `Axes`, `VGroup(Dot(), Line())`.  
            - Position with reasonable spacing from the formula.  
            - Style: `.scale(0.7).to_edge(DOWN)`
@@ -146,7 +146,7 @@ def generate_llm_code(prompt_content: str, model: str):
         8. Do not explain the code, only the code.
         9. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
         10. Ensure there are no unmatched { or } in LaTeX expressions, and all \frac{...}{...} commands are complete and properly nested.
-        11. Use only valid Manim Community v0.18 methods.
+        11. Use only valid Manim Community v0.19 methods.
     """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
