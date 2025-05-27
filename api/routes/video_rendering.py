@@ -115,16 +115,14 @@ def generate_llm_code(prompt_content: str, model: str):
         **Video Structure Template:**
         1. **Concept Definition (2-8 seconds)**  
            - Provide a clear and concise explanation using Tex() (no special characters like $, %, &, _ unless escaped).  
-           - Example script:  
-             "Duration measures a bond's price sensitivity to interest rate changes, calculated as..."  
-            *Manim Tip: Combine `Text` with `Rotate` and `FadeIn` animations*
+           - Style: `.scale_to_fit_width(config.frame_width * 0.9)`
         
         2. **Formula Breakdown Scene (5-10 seconds)**
            - Use MathTex() for mathematical formulas.
            - All LaTeX symbols must be valid and safely escaped (e.g., use \$, \%, \_, \&, avoid malformed braces {}).
            - Avoid ambiguous math expressions (ensure \frac, \sum, \text{} syntax is correct).
-           
-        3. **Diagram or Plot (5-10 seconds)**  
+            
+        3. **Chart or Graph**
            - If a diagram is needed (e.g., number line, axes chart, grouped dots/lines), use Manim primitives like `NumberLine`, `Axes`, `VGroup(Dot(), Line())`.  
            - Position with reasonable spacing from the formula.  
            - Style: `.scale(0.7).to_edge(DOWN)`
@@ -133,21 +131,34 @@ def generate_llm_code(prompt_content: str, model: str):
            - Include one step-by-step numerical case to apply the formula. 
            - Show duration calculation process with actual numbers
            
-        5. **Summary & Exam Tips (2-8 seconds)**  
-           - Display key takeaways, exam tips, or real-world applications using Text().  
+        5. **Summary or Key Takeaway (2-8 seconds)**  
+           - Key takeaways bullet points with highlight effects  
+           - Common mistake alerts (e.g., "Remember: Modified duration ≠ Macaulay duration!")  
+           - Exam-style question teaser with answer delayed to video end
+           - Style: `.scale_to_fit_width(config.frame_width * 0.9)`
+           
+        # Important formatting constraints:
+        1. Each section should appear sequentially on a clean screen, not overlaid on a single frame.
+        2. Use clear() or fade_out() between sections to avoid visual clutter.
+        3. Use only LaTeX expressions that are valid inside MathTex. Avoid alignment characters like &, and ensure all equations are properly wrapped.
+        4. Avoid LaTeX compilation errors such as:
+            - Misplaced alignment tab character &
+            - Missing $ inserted
+            - Undefined control sequence
+            - Extra } or forgotten $
+        5. If using long formulas, ensure they fit within the screen or apply .scale() or scale_to_fit_width() to prevent overflow.
+        6. Text and math should not overlap. Use next_to(), to_edge(), or .shift() to properly place each object.
+        7. Do not use any nonexistent methods like axes.get_bar(). Use standard BarChart or build bars with Rectangle and Axes.c2p.
+        8. Never use raw $, %, &, #, ~, _, or ^ unless escaped properly.
+        9. Ensure that all Text or MathTex objects fit within the screen boundaries
+        10. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
 
         # Rules
         1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
         2. Always use GenScene as the class name, otherwise, the code will not work.
         3. Always use self.play() to play the animation, otherwise, the code will not work.
-        4. Use .scale() and .to_edge() or .to_corner() to keep text/objects inside frame boundaries.
-        5. Never use raw $, %, &, #, ~, _, or ^ unless escaped properly.
-        6. All math expressions must be wrapped in MathTex() with fully balanced braces.
-        7. Do not use text to explain the code, only the code.
-        8. Do not explain the code, only the code.
-        9. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
-        10. Ensure there are no unmatched { or } in LaTeX expressions, and all \frac{...}{...} commands are complete and properly nested.
-        11. Do not use any nonexistent methods like axes.get_bar(). Use standard BarChart or build bars with Rectangle and Axes.c2p.
+        4. Do not use text to explain the code, only the code.
+        5. Do not explain the code, only the code.
     """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
