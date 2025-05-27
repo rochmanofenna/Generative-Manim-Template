@@ -146,7 +146,7 @@ def generate_llm_code(prompt_content: str, model: str):
         8. Do not explain the code, only the code.
         9. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
         10. Ensure there are no unmatched { or } in LaTeX expressions, and all \frac{...}{...} commands are complete and properly nested.
-        11. Use only valid Manim Community v0.19 methods.
+        11. Do not use any nonexistent methods like axes.get_bar(). Use standard BarChart or build bars with Rectangle and Axes.c2p.
     """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
@@ -172,8 +172,8 @@ def render_video():
     # generate code
     body = request.json
     prompt_content = body.get("prompt", "")
-    #model = body.get("model", "gpt-4o")
-    model = body.get("model", "gpt-4.1-mini")
+    model = body.get("model", "gpt-4o")
+    #model = body.get("model", "gpt-4.1-mini")
 
     # Get the API key from the request headers
     # api_key = request.headers.get('X-API-Key')
