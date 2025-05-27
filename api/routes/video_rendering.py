@@ -1,9 +1,10 @@
-from flask import Blueprint, jsonify, current_app, request, Response, send_from_directory
+from flask import Blueprint, jsonify, current_app, request, Response, send_from_directory, redirect
 import subprocess
 import os
 import re
 import json
 import sys
+import hashlib
 import traceback
 from azure.storage.blob import BlobServiceClient
 import shutil
@@ -57,10 +58,10 @@ def upload_to_google_storage(file_path: str, video_storage_file_name: str) -> st
     client = storage.Client.from_service_account_json(json_file)
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(cloud_file_name)
+    # blob.exists()
     # 上传本地文件
     blob.upload_from_filename(file_path)
     return blob.public_url
-
 
 def move_to_public_folder(
     file_path: str, video_storage_file_name: str, base_url: Union[str, None] = None
@@ -118,12 +119,12 @@ def generate_llm_code(prompt_content: str, model: str):
              "Duration measures a bond's price sensitivity to interest rate changes, calculated as..."  
             *Manim Tip: Combine `Text` with `Rotate` and `FadeIn` animations*
         
-        2. **Formula Breakdown Scene (5-15 seconds)**
+        2. **Formula Breakdown Scene (5-10 seconds)**
            - Use MathTex() for mathematical formulas.
            - All LaTeX symbols must be valid and safely escaped (e.g., use \$, \%, \_, \&, avoid malformed braces {}).
            - Avoid ambiguous math expressions (ensure \frac, \sum, \text{} syntax is correct).
            
-        3. **Diagram or Plot**  
+        3. **Diagram or Plot (5-10 seconds)**  
            - If a diagram is needed (e.g., number line, axes chart, grouped dots/lines), use Manim primitives like `NumberLine`, `Axes`, `VGroup(Dot(), Line())`.  
            - Position with reasonable spacing from the formula.  
            - Style: `.scale(0.7).to_edge(DOWN)`
@@ -480,6 +481,15 @@ def download_video(video_url):
         f.write(response.content)
     return local_filename
 
+def to_fixed_hash(s: str, length: int = 32) -> str:
+    # 生成 64 位 hex（32字节），然后截取所需长度
+    hash_val = hashlib.md5(s.encode()).hexdigest()
+    return hash_val[:length]
+
+
+def str_to_bool(value):
+    return value.lower() in ('true', '1', 'yes')
+
 @video_rendering_bp.route("/v1/video/play", methods=["GET"])
 def run_manim_render():
     """
@@ -490,7 +500,19 @@ def run_manim_render():
     prompt = request.args.get("prompt")
     if not prompt:
         return {"error": "Missing prompt"}, 400
-    model = request.args.get("model", "gpt-4.1-mini")
+    flag_str = request.args.get("save", default="True")
+    save = str_to_bool(flag_str)
+    video_storage_file_name = to_fixed_hash(prompt)
+    cloud_file_name = f"{video_storage_file_name}.mp4"
+    json_file = os.getenv("GOOGLE_CLOUD_FILE")
+    bucket_name = os.getenv("GOOGLE_BUCKET_NAME")
+    client = storage.Client.from_service_account_json(json_file)
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(cloud_file_name)
+    # check gcs
+    if save and blob.exists():
+        return {"video_url": f"https://storage.googleapis.com/{bucket_name}/{cloud_file_name}"}, 200
+    model = request.args.get("model", "gpt-4o")
     file_name = f"scene.py"
     api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
     public_dir = os.path.join(api_dir, "routes")
@@ -519,7 +541,12 @@ def run_manim_render():
         print(f"✅ Manim 渲染完成，输出在：{output_dir}")
         video_path = f"{output_dir}/videos/scene/480p15/"  # 你渲染生成的视频路径
         if os.path.exists(video_path):
-            return send_from_directory(video_path, "GenScene.mp4")
+            blob.upload_from_filename(f"{video_path}/GenScene.mp4")
+            return {"video_url": blob.public_url}, 200
+            # video_url = upload_to_google_storage(
+            #     f"{video_path}/GenScene.mp4", video_storage_file_name
+            # )
+            # return send_from_directory(video_path, "GenScene.mp4")
         else:
             return {"error": "Video not found"}, 400
     except subprocess.CalledProcessError as e:
