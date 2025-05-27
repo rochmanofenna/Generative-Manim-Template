@@ -1,6 +1,5 @@
 from flask import Blueprint, jsonify, current_app, request, Response, send_from_directory
 import subprocess
-import anthropic
 import os
 import re
 import json
@@ -149,37 +148,20 @@ def generate_llm_code(prompt_content: str, model: str):
         10. Ensure there are no unmatched { or } in LaTeX expressions, and all \frac{...}{...} commands are complete and properly nested.
         11. Use only valid Manim Community v0.18 methods.
     """
-    if model.startswith("claude-"):
-        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        messages = [{"role": "user", "content": prompt_content}]
-        try:
-            response = client.messages.create(
-                model=model,
-                max_tokens=1000,
-                temperature=0.2,
-                system=general_system_prompt,
-                messages=messages,
-            )
-
-            # Extract the text content from the response
-            code = "".join(block.text for block in response.content)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-    else:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        messages = [
-            {"role": "system", "content": general_system_prompt},
-            {"role": "user", "content": prompt_content},
-        ]
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.2,
-            )
-            code = response.choices[0].message.content
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    messages = [
+        {"role": "system", "content": general_system_prompt},
+        {"role": "user", "content": prompt_content},
+    ]
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.2,
+        )
+        code = response.choices[0].message.content
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     # Extract the rest of the request data
     if not code:
         return jsonify(error="No code provided"), 400
