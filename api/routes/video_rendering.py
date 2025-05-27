@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, current_app, request, Response, send_from_directory
 import subprocess
+import anthropic
 import os
 import re
 import json
@@ -25,6 +26,7 @@ def extract_code_from_markdown(raw_code: str) -> str:
     match = re.search(r"```(?:python)?\n(.*?)```", raw_code, re.DOTALL)
     code = match.group(1) if match else raw_code
     return code.strip()
+
 
 def upload_to_azure_storage(file_path: str, video_storage_file_name: str) -> str:
     """
@@ -93,7 +95,7 @@ def get_frame_config(aspect_ratio):
 
 def generate_llm_code(prompt_content: str, model: str):
     general_system_prompt = """
-        You are an expert assistant familiar with both CFA (Chartered Financial Analyst) terminology and Manim. 
+        You are an expert in both CFA curriculum content and Manim animation. 
         Manim is a mathematical animation engine that is used to create videos programmatically.
 
         The following is an example of the code:
@@ -107,28 +109,77 @@ def generate_llm_code(prompt_content: str, model: str):
             self.play(Create(c))
 
         \`\`\`
+        
+        *Target: Create an educational video explaining [Insert CFA Topic] with animated demonstrations, and must avoid any LaTeX rendering errors*
+        
+        **Video Structure Template:**
+        1. **Concept Definition (2-8 seconds)**  
+           - Provide a clear and concise explanation using Tex() (no special characters like $, %, &, _ unless escaped).  
+           - Example script:  
+             "Duration measures a bond's price sensitivity to interest rate changes, calculated as..."  
+            *Manim Tip: Combine `Text` with `Rotate` and `FadeIn` animations*
+        
+        2. **Formula Breakdown Scene (5-15 seconds)**
+           - Use MathTex() for mathematical formulas.
+           - All LaTeX symbols must be valid and safely escaped (e.g., use \$, \%, \_, \&, avoid malformed braces {}).
+           - Avoid ambiguous math expressions (ensure \frac, \sum, \text{} syntax is correct).
+           
+        3. **Diagram or Plot (5-15 seconds)**  
+           - If a diagram is needed (e.g., number line, axes chart, grouped dots/lines), use Manim primitives like `NumberLine`, `Axes`, `VGroup(Dot(), Line())`.  
+           - Position with reasonable spacing from the formula.  
+           - Style: `.scale(0.7).to_edge(DOWN)`
+           
+        4. **Real-World Case Study (5-15 seconds)**  
+           - Include one step-by-step numerical case to apply the formula. 
+           - Show duration calculation process with actual numbers
+           
+        5. **Summary & Exam Tips (2-8 seconds)**  
+           - Display key takeaways, exam tips, or real-world applications using Text().  
 
         # Rules
         1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
         2. Always use GenScene as the class name, otherwise, the code will not work.
         3. Always use self.play() to play the animation, otherwise, the code will not work.
-        4. Do not use text to explain the code, only the code.
-        5. Do not explain the code, only the code.
+        4. Use .scale() and .to_edge() or .to_corner() to keep text/objects inside frame boundaries.
+        5. Never use raw $, %, &, #, ~, _, or ^ unless escaped properly.
+        6. All math expressions must be wrapped in MathTex() with fully balanced braces.
+        7. Do not use text to explain the code, only the code.
+        8. Do not explain the code, only the code.
+        9. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
+        10. Ensure there are no unmatched { or } in LaTeX expressions, and all \frac{...}{...} commands are complete and properly nested.
+        11. Use only valid Manim Community v0.18 methods.
     """
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    messages = [
-        {"role": "system", "content": general_system_prompt},
-        {"role": "user", "content": prompt_content},
-    ]
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.2,
-        )
-        code = response.choices[0].message.content
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if model.startswith("claude-"):
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        messages = [{"role": "user", "content": prompt_content}]
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=1000,
+                temperature=0.2,
+                system=general_system_prompt,
+                messages=messages,
+            )
+
+            # Extract the text content from the response
+            code = "".join(block.text for block in response.content)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        messages = [
+            {"role": "system", "content": general_system_prompt},
+            {"role": "user", "content": prompt_content},
+        ]
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.2,
+            )
+            code = response.choices[0].message.content
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     # Extract the rest of the request data
     if not code:
         return jsonify(error="No code provided"), 400
