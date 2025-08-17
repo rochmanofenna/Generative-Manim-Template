@@ -1,72 +1,357 @@
+# Generative Manim Template
+
 <p align="center">
-  <img
-    src=".github/logo.png"
-    align="center"
-    width="100"
-    alt="Generative Manim"
-    title="Generative Manim"
-  />
-  <h1 align="center">Generative Manim</h1>
+  <h1 align="center">Educational Video Generation Platform</h1>
 </p>
 
 <p align="center">
-  🎨 GPT-4o powered generative videos. Concept. ⚡️ <a href="https://discord.gg/HkbYEGybGv">Join our Discord server here!</a>
+  AI-powered educational video generation using Manim animations
 </p>
 
 <p align="center">
-  <a href="https://generative-manim.vercel.app">
-    <img src="https://img.shields.io/static/v1?label=Demo&message=Generative%20Manim&color=000000&logo=vercel&style=flat" />
-  </a>
-  <a href="https://animo.video">
-    <img src="https://img.shields.io/static/v1?label=Platform&message=Animo&color=E11D48&logo=openai&style=flat" />
-  </a>
-  <a href="">
-    <img src="https://img.shields.io/static/v1?label=OpenAI%20API&message=GPT-4o&color=000000&logo=openai&style=flat" />
-  </a>
-  <a href="">
-    <img src="https://img.shields.io/static/v1?label=Anthropic&message=Claude&color=000000&logo=anthropic&style=flat" />
-  </a>
+  <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" />
+  <img src="https://img.shields.io/badge/Manim-0.18.0+-orange.svg" />
+  <img src="https://img.shields.io/badge/Flask-2.3.0+-green.svg" />
+  <img src="https://img.shields.io/badge/OpenAI-GPT4o-purple.svg" />
+  <img src="https://img.shields.io/badge/Anthropic-Claude-red.svg" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" />
 </p>
 
 ---
 
-![Preview](./.github/preview.jpg)
+## Features
 
-## 🚀 Concept
+- **AI-Powered Generation**: Create professional educational videos using GPT-4o, Claude, and other LLMs
+- **Mathematical Animations**: Advanced Manim integration for complex formulas, graphs, and visualizations
+- **Text-to-Speech**: Automated voiceover generation with Google TTS
+- **Multiple Formats**: Support for 16:9, 9:16, and 1:1 aspect ratios
+- **Real-time Streaming**: Live progress updates during video generation
+- **Interactive Chat**: Iterative refinement with preview generation
+- **Domain Flexibility**: Configurable for any educational domain (math, science, programming, etc.)
+- **Docker Ready**: Containerized deployment for consistent environments
 
-**Generative Manim** (GM) is a suite of tools that allows you to create videos with Manim using LLMs (Large Language Models) like GPT-4 or Claude. The idea is to enable anyone to create wonderful animations from text ✨.
+## Quick Start
 
-It began as a prototype of a web app that uses [GPT-4](https://openai.com/research/gpt-4) to generate videos with [Manim](https://www.manim.community). The idea behind this project is taking advantage of the power of LLMs in programming, the understanding of human language and the animation capabilities of Manim to generate a tool that could be used by anyone to create videos. Regardless of their programming or video editing skills.
+### Prerequisites
 
-- 🖐️ [Generative Manim Demo](https://generative-manim.vercel.app/): Check out the demo of Generative Manim!
-- 🔬 [Generative Manim API](https://github.com/360macky/generative-manim/tree/main/api): Build over the Animation Processing Interface, or API.
-- 🧑‍💻 [Generative Manim Developers](https://discord.gg/HkbYEGybGv): Join our Discord server, learn new things, share your creations and more!
-- 🍎 [Generative Manim Streamlit (Legacy)](https://github.com/360macky/generative-manim/tree/main/streamlit): First LLM exploration of LLMs and Animation.
+- Python 3.9+
+- FFmpeg
+- LaTeX (for mathematical formulas)
+- Docker (optional)
 
-## 💻 Models
+### 1. Clone Repository
 
-**Models** are the core of Generative Manim. A model is a way to convert text to code, that can later be rendered in a video.
+```bash
+git clone https://github.com/rochmanofenna/Generative-Manim-Template.git
+cd Generative-Manim-Template
+```
 
-| Name                          | Description                                                               | Engine                     | Phase |
-| ----------------------------- | ------------------------------------------------------------------------- | -------------------------- | ----- |
-| GM GPT-4o                     | Latest GPT model from OpenAI powered by a custom System Prompt            | GPT-4o                     | ✅    |
-| GM GPT-3.5 Fine Tuned         | First Fine-tuned model of GPT-3.5                                         | GPT-3.5                    | ✅    |
-| GM GPT-3.5 Physics Fine Tuned | Fine-tuned GPT-3.5 model trained to generate Physics animations           | GPT-3.5                    | ✅    |
-| GM Claude Sonnet              | Claude Sonnet 3 model from Sonnet adapted with our custom System Prompt   | claude-3-sonnet-20240229   | ✅    |
-| GM Claude Sonnet 3.5          | Claude Sonnet 3.5 model from Sonnet adapted with our custom System Prompt | claude-3-5-sonnet-20240620 | ✅    |
+### 2. Environment Setup
 
-### 📡 New Models
+```bash
+# Install using pip
+pip install -e .
 
-If you want to suggest a new model, please open an issue in the [repository](https://github.com/360macky/generative-manim/issues) or talk with us in our [Discord server](https://discord.gg/HkbYEGybGv).
+# Or install with development dependencies
+make install-dev
 
-## ✨ Sponsors
+# Or manually install
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-**Generative Manim** is currently sponsored by **The Astronomical Software Company**.
+### 3. Configure Environment Variables
 
-## 🤲 Contributing
+Create a `.env` file in the root directory:
 
-Generative Manim is an open source project.
+```bash
+# Required API Keys
+OPENAI_API_KEY=your_openai_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-If you want to be the author of a new feature, fix a bug or contribute with something new.
+# Storage Configuration (choose one)
+USE_LOCAL_STORAGE=true
+BASE_URL=http://localhost:5001
 
-Fork the repository and make changes as you like. [Pull requests](https://github.com/360macky/generative-manim/pulls) are warmly welcome. Remember you can also join our [Discord server](https://discord.gg/HkbYEGybGv) to discuss new features, bugs or any other topic.
+# Optional: Cloud Storage
+AZURE_STORAGE_CONNECTION_STRING=your_azure_connection
+AZURE_STORAGE_CONTAINER_NAME=your_container
+GOOGLE_CLOUD_FILE=path/to/service-account.json
+GOOGLE_BUCKET_NAME=your_bucket_name
+
+# Optional: Domain Configuration
+DOMAIN_CONFIG=config/domains/mathematics.json
+```
+
+### 4. Run the Application
+
+```bash
+# Using make
+make run
+
+# Or directly
+python api/run.py
+
+# Or with gunicorn (production)
+make run-prod
+```
+
+The API will be available at `http://localhost:5001`
+
+## Usage
+
+### Simple Video Generation
+
+```bash
+curl -X POST http://localhost:5001/v1/video/rendering \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain the quadratic formula with visual examples",
+    "model": "gpt-4o",
+    "user_id": "demo",
+    "project_name": "math-tutorial",
+    "iteration": "v1",
+    "aspect_ratio": "16:9",
+    "disable_voiceover": false
+  }'
+```
+
+### Interactive Chat Generation
+
+```bash
+curl -X POST http://localhost:5001/v1/chat/generation \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "Create a video about Newton's laws of motion"}
+    ],
+    "engine": "openai",
+    "model": "gpt-4o"
+  }'
+```
+
+### Domain-Specific Examples
+
+The platform supports multiple educational domains. Configure your domain in `config/domains/`:
+
+- **Mathematics**: Calculus, linear algebra, statistics
+- **Physics**: Mechanics, thermodynamics, quantum physics  
+- **Computer Science**: Algorithms, data structures, machine learning
+- **Chemistry**: Organic chemistry, molecular structures
+- **Biology**: Cell biology, genetics, ecology
+- **Economics**: Microeconomics, game theory, market analysis
+
+## Testing
+
+### Quick Tests
+
+```bash
+# Run all tests
+make test
+
+# Simple functionality test
+./test_simple.sh
+
+# Domain-specific tests
+./test_math_video.sh
+./test_physics_video.sh
+```
+
+### Custom Test
+
+```bash
+# Create your own test
+curl -X POST http://localhost:5001/v1/video/rendering \
+  -H "Content-Type: application/json" \
+  -d @your_test_config.json
+```
+
+## Docker Deployment
+
+### Using Docker Compose (Recommended)
+
+```bash
+# Start services
+make docker-compose-up
+
+# Stop services  
+make docker-compose-down
+```
+
+### Manual Docker Build
+
+```bash
+# Build image
+make docker-build
+
+# Run container
+make docker-run
+```
+
+## Project Structure
+
+```
+generative-manim-template/
+├── api/                          # Flask API application
+│   ├── routes/                   # API endpoints
+│   │   ├── chat_generation.py    # Interactive chat interface
+│   │   ├── code_generation.py    # Storyboard generation
+│   │   └── video_rendering.py    # Video rendering engine
+│   ├── utils/                    # Utility functions
+│   │   ├── advanced_animations.py # Advanced Manim animations
+│   │   └── storyboard.py         # Storyboard processing
+│   ├── prompts/                  # AI prompts and templates
+│   └── schemas/                  # JSON schemas for validation
+├── config/                       # Configuration files
+│   └── domains/                  # Domain-specific configurations
+├── tests/                        # Test suite
+├── media/                        # Generated video outputs
+├── docs/                         # Documentation
+├── Makefile                      # Development tasks
+├── pyproject.toml               # Python package configuration
+├── Dockerfile                   # Container configuration
+└── docker-compose.yml           # Multi-container setup
+```
+
+## Configuration
+
+### Aspect Ratios
+
+- `16:9` - Standard widescreen (3840x2160, 30fps)
+- `9:16` - Vertical/mobile (1080x1920, 30fps) 
+- `1:1` - Square format (1080x1080, 30fps)
+
+### Quality Settings
+
+- `preview` - Fast generation (720p, 24fps)
+- `high` - Production quality (1080p, 30fps)
+
+### Supported Models
+
+- **OpenAI**: `gpt-4o`, `o1-mini`
+- **Anthropic**: `claude-3-5-sonnet`
+- **DeepSeek**: `r1`
+
+## API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/v1/video/rendering` | POST | Generate video from text prompt |
+| `/v1/chat/generation` | POST | Interactive chat with preview |
+| `/v1/code/generation` | POST | Generate storyboard JSON |
+| `/v1/video/exporting` | POST | Export and merge multiple videos |
+
+## Advanced Features
+
+### Custom Domain Configuration
+
+Create a domain configuration file in `config/domains/your_domain.json`:
+
+```json
+{
+  "name": "Mathematics",
+  "persona": "You are an engaging mathematics educator",
+  "topics": ["algebra", "calculus", "geometry"],
+  "animation_style": "clean and mathematical",
+  "color_scheme": {
+    "primary": "#1E88E5",
+    "secondary": "#FFC107"
+  }
+}
+```
+
+### Custom Animations
+
+Add custom animations in `api/utils/custom_animations.py`:
+
+```python
+from manim import *
+
+class CustomAnimation(Scene):
+    def construct(self):
+        # Your custom animation logic
+        pass
+```
+
+## Development
+
+### Setup Development Environment
+
+```bash
+# Install all development dependencies
+make setup
+
+# Run linting
+make lint
+
+# Format code
+make format
+
+# Run full CI pipeline
+make all
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+## Troubleshooting
+
+### Common Issues
+
+**Video Generation Fails**
+```bash
+# Check dependencies
+make check
+
+# Verify FFmpeg
+ffmpeg -version
+
+# Check LaTeX installation
+pdflatex --version
+```
+
+**API Key Errors**
+```bash
+# Create .env file
+make create-env
+
+# Verify environment variables
+echo $OPENAI_API_KEY
+echo $ANTHROPIC_API_KEY
+```
+
+**Docker Issues**
+```bash
+# Rebuild containers
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Debug Mode
+
+Enable verbose logging:
+```bash
+FLASK_DEBUG=1 python api/run.py
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Manim Community](https://www.manim.community/) - Mathematical animation engine
+- [3Blue1Brown](https://www.3blue1brown.com/) - Inspiration for mathematical visualizations
+- [OpenAI](https://openai.com/) & [Anthropic](https://anthropic.com/) - AI language models
+- All contributors and users of this platform
+
+## Support
+
+For issues, questions, or contributions, please visit our [GitHub repository](https://github.com/rochmanofenna/Generative-Manim-Template).
