@@ -16,9 +16,9 @@ do
 done
 
 # set image:tag
-IMAGE_NAME=cfa/agent-manim
+IMAGE_NAME=${DOCKER_IMAGE_NAME:-generative-manim/agent}
 IMAGE_TAG=`git describe --tags`
-DOCKER_PUSH_REGISTRY=${DOCKER_PUSH_REGISTRY:-maven-wh.niub.la:8482}
+DOCKER_PUSH_REGISTRY=${DOCKER_PUSH_REGISTRY:-localhost:5000}
 
 
 # docker build

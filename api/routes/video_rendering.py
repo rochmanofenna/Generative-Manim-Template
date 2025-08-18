@@ -14,6 +14,7 @@ import time
 import requests
 from google.cloud import storage
 from openai import OpenAI
+from pathlib import Path
 video_rendering_bp = Blueprint("video_rendering", __name__)
 
 
@@ -93,9 +94,21 @@ def get_frame_config(aspect_ratio):
     else:
         return (3840, 2160), 14.22
 
-def generate_llm_code(prompt_content: str, model: str):
-    general_system_prompt = """
-        You are an expert in both CFA curriculum content and Manim animation. 
+def load_domain_config(domain: str = "default"):
+    """Load domain configuration from JSON file"""
+    config_dir = Path(__file__).parent.parent.parent / "config" / "domains"
+    config_file = config_dir / f"{domain}.json"
+    
+    if not config_file.exists():
+        config_file = config_dir / "default.json"
+    
+    with open(config_file, 'r') as f:
+        return json.load(f)
+
+def generate_llm_code(prompt_content: str, model: str, domain: str = "default"):
+    config = load_domain_config(domain)
+    general_system_prompt = f"""
+        {config['system_prompt']} 
         Manim is a mathematical animation engine that is used to create videos programmatically.
 
         The following is an example of the code:
@@ -110,7 +123,7 @@ def generate_llm_code(prompt_content: str, model: str):
 
         \`\`\`
         
-        *Target: Create an educational video explaining [Insert CFA Topic] with animated demonstrations, and must avoid any LaTeX rendering errors*
+        *Target: {config['target_template']}*
         
         **Video Structure Template:**
         1. **Concept Definition (2-8 seconds)**  
@@ -154,7 +167,7 @@ def generate_llm_code(prompt_content: str, model: str):
         10. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
 
         # Rules
-        1. If the user does not input in English, first translate it into the accurate English corresponding items used in CFA textbooks and exams.
+        1. {config['translation_rule']}
         2. Always use GenScene as the class name, otherwise, the code will not work.
         3. Always use self.play() to play the animation, otherwise, the code will not work.
         4. Do not use text to explain the code, only the code.
@@ -186,6 +199,7 @@ def render_video():
     prompt_content = body.get("prompt", "")
     model = body.get("model", "gpt-4o")
     #model = body.get("model", "gpt-4.1-mini")
+    domain = body.get("domain", "default")
 
     # Get the API key from the request headers
     # api_key = request.headers.get('X-API-Key')
@@ -201,7 +215,7 @@ def render_video():
     
     # Now that we have a valid user_id, create a run
     # run_id = create_run_on_user(user_id, "video")
-    code = generate_llm_code(prompt_content, model)
+    code = generate_llm_code(prompt_content, model, domain)
     #file_name = request.json.get("file_name")
     file_class = request.json.get("file_class", "GenScene")
 
@@ -524,6 +538,7 @@ def run_manim_render():
     if save and blob.exists():
         return {"video_url": f"https://storage.googleapis.com/{bucket_name}/{cloud_file_name}"}, 200
     model = request.args.get("model", "gpt-4o")
+    domain = request.args.get("domain", "default")
     file_name = f"scene.py"
     api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
     public_dir = os.path.join(api_dir, "routes")
@@ -531,7 +546,7 @@ def run_manim_render():
     file_path = os.path.join(public_dir, file_name)
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-    code = generate_llm_code(prompt, model)
+    code = generate_llm_code(prompt, model, domain)
     modified_code = extract_code_from_markdown(code)
     # Write the code to the file
     with open(file_path, "w", encoding="utf-8") as f:
