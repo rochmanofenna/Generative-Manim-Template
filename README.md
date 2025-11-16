@@ -1,7 +1,65 @@
 # Generative Manim
 
 AI-powered educational video generation using Manim animations. Create professional educational videos with mathematical formulas, graphs, and visualizations through simple text prompts.
+```
+User Prompt
+   │
+   ▼
+┌──────────────────────────┐
+│  API Gateway (Flask)     │
+│  run.py + blueprints     │
+└───────────┬──────────────┘
+            │  POST /v2/code/generation
+            ▼
+┌──────────────────────────────────────┐
+│  Orchestrator / Code Generation     │
+│  api/routes/code_generation.py      │
+│  - picks model (GPT-4o / Claude)    │
+│  - preview vs full mode             │
+└───────────┬─────────────────────────┘
+            │  LLM call → storyboard-ish response
+            ▼
+┌──────────────────────────────────────┐
+│ Storyboard Agent                     │
+│ api/utils/storyboard.py              │
+│ - ensure storyboard structure        │
+│   (get_blocks)                       │
+│ - validate_storyboard() via          │
+│   api/schemas/storyboard.schema.json │
+│ - blocks_to_manim(): to code blocks  │
+└───────────┬──────────────────────────┘
+            │ validated storyboard
+            ▼
+┌──────────────────────────────────────┐
+│  Animation Library Agent             │
+│  api/utils/advanced_animations.py    │
+│  - map semantic tags → templates     │
+│  - inject complex, *tested* manim    │
+└───────────┬──────────────────────────┘
+            │ manim script (as text)
+            ▼
+┌──────────────────────────────────────┐
+│  Render Wrapper                      │
+│  render.py                           │
+│  - sanitize_code() (unicode, dashes) │
+│  - extract_manim_block()             │
+│  - write scenes/GenScene.py          │
+│  - run `manim` with config           │
+└───────────┬──────────────────────────┘
+            │
+            ▼
+┌──────────────────────────────────────┐
+│  Video Management / API              │
+│  api/routes/video_rendering.py       │
+│  - naming, paths, cleanup            │
+│  - GPU render scripts                │
+│  generate_gpu_video.sh, service.sh   │
+└───────────┬──────────────────────────┘
+            │
+            ▼
+       Final MP4 + logs
 
+```
 ## Features
 
 - **AI-Powered**: GPT-4o, Claude, and other LLMs for content generation
