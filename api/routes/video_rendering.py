@@ -159,16 +159,7 @@ _SYSTEM_PROMPT_TEMPLATE = r"""
         <<SYSTEM_PROMPT>>
         Manim is a mathematical animation engine that is used to create videos programmatically.
 
-        The following is an example of the code:
-        ```
-        from manim import *
-        from math import *
-
-        class GenScene(Scene):
-            def construct(self):
-                c = Circle(color=BLUE)
-                self.play(Create(c))
-        ```
+<<SCENE_GUIDE>>
 
         *Target: <<TARGET_TEMPLATE>>*
 
@@ -222,14 +213,60 @@ _SYSTEM_PROMPT_TEMPLATE = r"""
     """
 
 
+_PLAIN_SCENE_GUIDE = r"""
+        The following is an example of the code:
+        ```
+        from manim import *
+        from math import *
+
+        class GenScene(Scene):
+            def construct(self):
+                c = Circle(color=BLUE)
+                self.play(Create(c))
+        ```
+"""
+
+_VOICEOVER_SCENE_GUIDE = r"""
+        The video must be narrated. The following is an example of the code:
+        ```
+        from manim import *
+        from math import *
+        from manim_voiceover import VoiceoverScene
+        from manim_voiceover.services.gtts import GTTSService
+
+        class GenScene(VoiceoverScene):
+            def construct(self):
+                self.set_speech_service(GTTSService(lang="en"))
+                c = Circle(color=BLUE)
+                with self.voiceover(text="Here is a blue circle.") as tracker:
+                    self.play(Create(c), run_time=tracker.duration)
+        ```
+
+        # Narration rules
+        1. GenScene must extend VoiceoverScene, and the first statement in
+           construct() must be self.set_speech_service(GTTSService(lang="en")).
+        2. Every self.play() call belongs inside a
+           `with self.voiceover(text="...") as tracker:` block, and must pass
+           run_time=tracker.duration so the visuals last as long as the narration.
+        3. Narration text is spoken aloud, so write plain English prose only.
+           No LaTeX, no markdown, no symbols: say "a squared plus b squared"
+           rather than "a^2 + b^2", and "percent" rather than "%".
+        4. Keep each narration segment to one or two sentences, and make the
+           narration explain what is on screen at that moment.
+        5. Call self.wait() only outside voiceover blocks.
+"""
+
+
 class CodeGenerationError(RuntimeError):
     """Raised when the LLM fails to return usable Manim code."""
 
 
-def build_system_prompt(domain: str = "default") -> str:
+def build_system_prompt(domain: str = "default", voiceover: bool = True) -> str:
     config = load_domain_config(domain)
+    guide = _VOICEOVER_SCENE_GUIDE if voiceover else _PLAIN_SCENE_GUIDE
     return (
         _SYSTEM_PROMPT_TEMPLATE
+        .replace("<<SCENE_GUIDE>>", guide)
         .replace("<<SYSTEM_PROMPT>>", config["system_prompt"])
         .replace("<<TARGET_TEMPLATE>>", config["target_template"])
         .replace("<<TRANSLATION_RULE>>", config["translation_rule"])
@@ -305,7 +342,10 @@ def _generate_with_openai(system_prompt: str, prompt_content: str, model: str) -
 
 
 def generate_llm_code(
-    prompt_content: str, model: Union[str, None] = None, domain: str = "default"
+    prompt_content: str,
+    model: Union[str, None] = None,
+    domain: str = "default",
+    voiceover: bool = True,
 ) -> str:
     """Return Manim source code for the prompt, or raise CodeGenerationError.
 
@@ -314,7 +354,7 @@ def generate_llm_code(
     Flask response tuple, because callers feed the result straight to the renderer.
     """
     model = resolve_model(model)
-    system_prompt = build_system_prompt(domain)
+    system_prompt = build_system_prompt(domain, voiceover)
     try:
         if model.startswith("claude-"):
             code = _generate_with_anthropic(system_prompt, prompt_content, model)
@@ -337,7 +377,10 @@ class RenderError(RuntimeError):
 
 
 def build_scene_source(
-    code: str, aspect_ratio: Union[str, None] = None, quality: Union[str, None] = None
+    code: str,
+    aspect_ratio: Union[str, None] = None,
+    quality: Union[str, None] = None,
+    voiceover: bool = False,
 ) -> str:
     """Wrap generated code with the Manim config for the requested aspect ratio.
 
@@ -346,14 +389,20 @@ def build_scene_source(
     values survive and are read when the scene is rendered.
     """
     (pixel_width, pixel_height), frame_width = get_frame_config(aspect_ratio, quality)
-    return (
+    header = (
         "from manim import config\n"
         f"config.pixel_width = {pixel_width}\n"
         f"config.pixel_height = {pixel_height}\n"
         f"config.frame_width = {frame_width}\n"
-        "\n"
-        f"{extract_code_from_markdown(code)}\n"
     )
+    if voiceover:
+        # Suppress the .srt sidecar manim_voiceover writes alongside the video.
+        # Applied here rather than trusting the model to emit it.
+        header += (
+            "from manim.scene.scene_file_writer import SceneFileWriter\n"
+            "SceneFileWriter.write_subcaption_file = lambda *a, **k: None\n"
+        )
+    return f"{header}\n{extract_code_from_markdown(code)}\n"
 
 
 def _find_rendered_mp4(media_dir: Path, file_class: str) -> Path:
@@ -375,6 +424,7 @@ def iter_render_scene(
     aspect_ratio: Union[str, None] = None,
     workdir: Union[str, None] = None,
     quality: Union[str, None] = None,
+    voiceover: bool = False,
 ):
     """Render `code` to an MP4, yielding progress dicts and finally {"video_path": ...}.
 
@@ -388,7 +438,7 @@ def iter_render_scene(
     scene_path = workdir / "scene.py"
     media_dir = workdir / "media"
     scene_path.write_text(
-        build_scene_source(code, aspect_ratio, quality), encoding="utf-8"
+        build_scene_source(code, aspect_ratio, quality, voiceover), encoding="utf-8"
     )
 
     command = [
@@ -495,6 +545,8 @@ def render_video():
     aspect_ratio = body.get("aspect_ratio")
     # low | medium | high | ultra -- see QUALITY_SHORT_EDGE
     quality = body.get("quality")
+    # Narration is on by default; gTTS needs network access at render time.
+    voiceover = body.get("voiceover", True)
     stream = body.get("stream", False)
 
     video_storage_file_name = f"video-{user_id}-{project_name}-{iteration}"
@@ -502,7 +554,7 @@ def render_video():
     base_url = request.host_url
 
     try:
-        code = generate_llm_code(prompt_content, model, domain)
+        code = generate_llm_code(prompt_content, model, domain, voiceover)
     except CodeGenerationError as e:
         return jsonify({"error": str(e)}), 502
 
@@ -510,7 +562,7 @@ def render_video():
         workdir = tempfile.mkdtemp(prefix="genmanim-")
         try:
             for event in iter_render_scene(
-                code, file_class, aspect_ratio, workdir, quality
+                code, file_class, aspect_ratio, workdir, quality, voiceover
             ):
                 if "video_path" in event:
                     video_url = publish_video(
@@ -624,6 +676,7 @@ def run_manim_render():
     domain = request.args.get("domain", "default")
     aspect_ratio = request.args.get("aspect_ratio")
     quality = request.args.get("quality")
+    voiceover = str_to_bool(request.args.get("voiceover", default="True"))
     video_storage_file_name = to_fixed_hash(prompt)
 
     if save:
@@ -632,14 +685,16 @@ def run_manim_render():
             return jsonify({"video_url": cached}), 200
 
     try:
-        code = generate_llm_code(prompt, model, domain)
+        code = generate_llm_code(prompt, model, domain, voiceover)
     except CodeGenerationError as e:
         return jsonify({"error": str(e)}), 502
 
     workdir = tempfile.mkdtemp(prefix="genmanim-")
     try:
         video_path = None
-        for event in iter_render_scene(code, "GenScene", aspect_ratio, workdir, quality):
+        for event in iter_render_scene(
+            code, "GenScene", aspect_ratio, workdir, quality, voiceover
+        ):
             if "video_path" in event:
                 video_path = event["video_path"]
         if not video_path:

@@ -15,6 +15,9 @@ requests>=2.31.0
 manim==0.18.0
 # manim 0.18.0 imports pkg_resources at startup, which setuptools 81 removed.
 setuptools<81
+# Narration. gTTS calls Google Translate's TTS endpoint, so rendering a narrated
+# video needs network access; no API key or account required.
+manim-voiceover[gtts]==0.4.0
 
 # Optional cloud storage backends. Only needed when USE_LOCAL_STORAGE=false;
 # both are imported lazily so local rendering works without them.
