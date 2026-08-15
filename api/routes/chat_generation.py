@@ -10,7 +10,6 @@ import random
 import re
 import base64
 from api.prompts.manimDocs import manimDocs
-from azure.storage.blob import BlobServiceClient
 from PIL import Image
 import io
 import time

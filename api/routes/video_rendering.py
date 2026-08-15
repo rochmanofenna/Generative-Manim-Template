@@ -6,20 +6,22 @@ import json
 import sys
 import hashlib
 import traceback
-from azure.storage.blob import BlobServiceClient
 import shutil
+import tempfile
 from typing import Union
 import uuid
 import time
 import requests
-from google.cloud import storage
 from openai import OpenAI
 from pathlib import Path
 video_rendering_bp = Blueprint("video_rendering", __name__)
 
 
-# USE_LOCAL_STORAGE = os.getenv("USE_LOCAL_STORAGE", "true") == "true"
-USE_LOCAL_STORAGE = False
+def use_local_storage() -> bool:
+    """Read at call time so tests and deployments can flip it via the environment."""
+    return os.getenv("USE_LOCAL_STORAGE", "true").lower() in ("true", "1", "yes")
+
+
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8080")
 
 def extract_code_from_markdown(raw_code: str) -> str:
@@ -33,6 +35,8 @@ def upload_to_azure_storage(file_path: str, video_storage_file_name: str) -> str
     """
     Uploads the video to Azure Blob Storage and returns the URL.
     """
+    from azure.storage.blob import BlobServiceClient  # optional dependency
+
     cloud_file_name = f"{video_storage_file_name}.mp4"
 
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -53,16 +57,26 @@ def upload_to_google_storage(file_path: str, video_storage_file_name: str) -> st
     """
     Uploads the video to google Storage and returns the URL.
     """
+    from google.cloud import storage  # optional dependency
+
     cloud_file_name = f"{video_storage_file_name}.mp4"
     json_file = os.getenv("GOOGLE_CLOUD_FILE")
     bucket_name = os.getenv("GOOGLE_BUCKET_NAME")
     client = storage.Client.from_service_account_json(json_file)
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(cloud_file_name)
-    # blob.exists()
-    # 上传本地文件
     blob.upload_from_filename(file_path)
     return blob.public_url
+
+def safe_storage_name(name: str) -> str:
+    """Reduce a caller-supplied name to something safe to use as a filename.
+
+    user_id / project_name come straight from the request body, so a value like
+    "../../etc/cron.d/x" would otherwise escape the output directory.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", name).lstrip(".-")
+    return cleaned[:120] or "video"
+
 
 def move_to_public_folder(
     file_path: str, video_storage_file_name: str, base_url: Union[str, None] = None
@@ -70,7 +84,11 @@ def move_to_public_folder(
     """
     Moves the video to the public folder and returns the URL.
     """
-    public_folder = os.path.join(os.path.dirname(__file__), "public")
+    video_storage_file_name = safe_storage_name(video_storage_file_name)
+    # Must match the Flask static folder configured in api/__init__.py
+    # (static_folder="public", static_url_path="/public"), which resolves to
+    # api/public -- not api/routes/public.
+    public_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
     os.makedirs(public_folder, exist_ok=True)
 
     new_file_name = f"{video_storage_file_name}.mp4"
@@ -84,15 +102,43 @@ def move_to_public_folder(
     return video_url
 
 
-def get_frame_config(aspect_ratio):
-    if aspect_ratio == "16:9":
-        return (3840, 2160), 14.22
-    elif aspect_ratio == "9:16":
-        return (1080, 1920), 8.0
-    elif aspect_ratio == "1:1":
-        return (1080, 1080), 8.0
-    else:
-        return (3840, 2160), 14.22
+# width ratio, height ratio, Manim frame width (in scene units)
+ASPECT_RATIOS = {
+    "16:9": (16, 9, 14.22),
+    "9:16": (9, 16, 8.0),
+    "1:1": (1, 1, 8.0),
+}
+
+# Pixel length of the *short* edge. "ultra" reproduces the original 4K 16:9 output.
+QUALITY_SHORT_EDGE = {"low": 480, "medium": 720, "high": 1080, "ultra": 2160}
+
+DEFAULT_ASPECT_RATIO = "16:9"
+DEFAULT_QUALITY = "high"
+
+
+def get_frame_config(aspect_ratio=None, quality=None):
+    """Return ((pixel_width, pixel_height), frame_width) for a shape and size.
+
+    Aspect ratio controls shape only; quality controls resolution. Dimensions are
+    forced even because H.264 cannot encode odd width/height.
+    """
+    w_ratio, h_ratio, frame_width = ASPECT_RATIOS.get(
+        aspect_ratio or DEFAULT_ASPECT_RATIO, ASPECT_RATIOS[DEFAULT_ASPECT_RATIO]
+    )
+    short_edge = QUALITY_SHORT_EDGE.get(
+        quality or DEFAULT_QUALITY, QUALITY_SHORT_EDGE[DEFAULT_QUALITY]
+    )
+
+    if w_ratio >= h_ratio:  # landscape or square: height is the short edge
+        pixel_height = short_edge
+        pixel_width = round(short_edge * w_ratio / h_ratio)
+    else:  # portrait: width is the short edge
+        pixel_width = short_edge
+        pixel_height = round(short_edge * h_ratio / w_ratio)
+
+    # Round up to even: 16:9 at 480 is 853.33px wide, and 854 is the conventional
+    # 480p widescreen width. H.264 cannot encode odd dimensions.
+    return (pixel_width + pixel_width % 2, pixel_height + pixel_height % 2), frame_width
 
 def load_domain_config(domain: str = "default"):
     """Load domain configuration from JSON file"""
@@ -105,26 +151,27 @@ def load_domain_config(domain: str = "default"):
     with open(config_file, 'r') as f:
         return json.load(f)
 
-def generate_llm_code(prompt_content: str, model: str, domain: str = "default"):
-    config = load_domain_config(domain)
-    general_system_prompt = f"""
-        {config['system_prompt']} 
+# Raw, non-f string on purpose: this prompt contains literal LaTeX braces ({},
+# \text{}, "Extra }") and backslash escapes, all of which are syntax errors inside
+# an f-string. Domain values are substituted via the <<...>> markers below, which
+# cannot collide with the LaTeX $, %, and {} that appear throughout the text.
+_SYSTEM_PROMPT_TEMPLATE = r"""
+        <<SYSTEM_PROMPT>>
         Manim is a mathematical animation engine that is used to create videos programmatically.
 
         The following is an example of the code:
-        \`\`\`
+        ```
         from manim import *
         from math import *
 
         class GenScene(Scene):
-        def construct(self):
-            c = Circle(color=BLUE)
-            self.play(Create(c))
+            def construct(self):
+                c = Circle(color=BLUE)
+                self.play(Create(c))
+        ```
 
-        \`\`\`
-        
-        *Target: {config['target_template']}*
-        
+        *Target: <<TARGET_TEMPLATE>>*
+
         **Video Structure Template:**
         1. **Concept Definition (2-8 seconds)**  
            - Provide a clear and concise explanation using Tex() (no special characters like $, %, &, _ unless escaped).  
@@ -167,290 +214,336 @@ def generate_llm_code(prompt_content: str, model: str, domain: str = "default"):
         10. Avoid "Missing $ inserted" errors — ensure all inline math is enclosed within proper math delimiters (e.g., \\( ... \\) or $...$).
 
         # Rules
-        1. {config['translation_rule']}
+        1. <<TRANSLATION_RULE>>
         2. Always use GenScene as the class name, otherwise, the code will not work.
         3. Always use self.play() to play the animation, otherwise, the code will not work.
         4. Do not use text to explain the code, only the code.
         5. Do not explain the code, only the code.
     """
+
+
+class CodeGenerationError(RuntimeError):
+    """Raised when the LLM fails to return usable Manim code."""
+
+
+def build_system_prompt(domain: str = "default") -> str:
+    config = load_domain_config(domain)
+    return (
+        _SYSTEM_PROMPT_TEMPLATE
+        .replace("<<SYSTEM_PROMPT>>", config["system_prompt"])
+        .replace("<<TARGET_TEMPLATE>>", config["target_template"])
+        .replace("<<TRANSLATION_RULE>>", config["translation_rule"])
+    )
+
+
+# Generated Manim scenes routinely run past 1k tokens; too small a cap truncates
+# the class mid-definition and the render fails with a SyntaxError.
+LLM_MAX_TOKENS = 16000
+
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+
+
+def has_api_key(var_name: str) -> bool:
+    """True when the env var holds something that could actually be a key.
+
+    Copying .env.example leaves placeholders like "sk-..." behind; those are
+    non-empty, so a bare truthiness check would treat an unconfigured provider
+    as configured and route requests to it. Real keys are far longer than this.
+    """
+    return len((os.getenv(var_name) or "").strip()) >= 20
+
+
+def resolve_model(requested: Union[str, None] = None) -> str:
+    """Pick a model, preferring whichever provider actually has credentials.
+
+    Lets a user with only ANTHROPIC_API_KEY set call the API without having to
+    name a model on every request.
+    """
+    if requested:
+        return requested
+    configured = os.getenv("DEFAULT_MODEL")
+    if configured:
+        return configured
+    if has_api_key("ANTHROPIC_API_KEY") and not has_api_key("OPENAI_API_KEY"):
+        return DEFAULT_ANTHROPIC_MODEL
+    return DEFAULT_OPENAI_MODEL
+
+
+def _generate_with_anthropic(system_prompt: str, prompt_content: str, model: str) -> str:
+    import anthropic  # imported lazily so the OpenAI path works without it
+
+    # No temperature: it is rejected with a 400 on Claude Opus 5 and the 4.7+
+    # family. Steer via the system prompt instead.
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    response = client.messages.create(
+        model=model,
+        max_tokens=LLM_MAX_TOKENS,
+        system=system_prompt,
+        messages=[{"role": "user", "content": prompt_content}],
+    )
+    # Check before reading content: a refusal returns HTTP 200 with content
+    # empty or partial, so indexing blocks[0] would mislead or crash.
+    if response.stop_reason == "refusal":
+        raise CodeGenerationError("Claude declined this prompt; try rephrasing it")
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def _generate_with_openai(system_prompt: str, prompt_content: str, model: str) -> str:
+    # Constructed here, not at module import: instantiating OpenAI() raises
+    # immediately when OPENAI_API_KEY is unset.
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    messages = [
-        {"role": "system", "content": general_system_prompt},
-        {"role": "user", "content": prompt_content},
-    ]
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_content},
+        ],
+        temperature=0.2,
+    )
+    return response.choices[0].message.content
+
+
+def generate_llm_code(
+    prompt_content: str, model: Union[str, None] = None, domain: str = "default"
+) -> str:
+    """Return Manim source code for the prompt, or raise CodeGenerationError.
+
+    Dispatches on the model name: `claude-*` goes to Anthropic, anything else to
+    OpenAI. This is a plain helper, not a view function -- it must never return a
+    Flask response tuple, because callers feed the result straight to the renderer.
+    """
+    model = resolve_model(model)
+    system_prompt = build_system_prompt(domain)
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.2,
-        )
-        code = response.choices[0].message.content
+        if model.startswith("claude-"):
+            code = _generate_with_anthropic(system_prompt, prompt_content, model)
+        else:
+            code = _generate_with_openai(system_prompt, prompt_content, model)
+    except CodeGenerationError:
+        raise
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    # Extract the rest of the request data
+        raise CodeGenerationError(f"LLM request failed: {e}") from e
     if not code:
-        return jsonify(error="No code provided"), 400
+        raise CodeGenerationError("LLM returned no code")
     return code
+
+class RenderError(RuntimeError):
+    """Raised when Manim fails to produce a video. Carries the render log."""
+
+    def __init__(self, message: str, log: str = ""):
+        super().__init__(message)
+        self.log = log
+
+
+def build_scene_source(
+    code: str, aspect_ratio: Union[str, None] = None, quality: Union[str, None] = None
+) -> str:
+    """Wrap generated code with the Manim config for the requested aspect ratio.
+
+    The config assignments come first; the scene's own `from manim import *`
+    rebinds the name `config` to the very same ManimConfig singleton, so these
+    values survive and are read when the scene is rendered.
+    """
+    (pixel_width, pixel_height), frame_width = get_frame_config(aspect_ratio, quality)
+    return (
+        "from manim import config\n"
+        f"config.pixel_width = {pixel_width}\n"
+        f"config.pixel_height = {pixel_height}\n"
+        f"config.frame_width = {frame_width}\n"
+        "\n"
+        f"{extract_code_from_markdown(code)}\n"
+    )
+
+
+def _find_rendered_mp4(media_dir: Path, file_class: str) -> Path:
+    """Locate the MP4 Manim produced, tolerating layout differences across versions."""
+    direct = media_dir / f"{file_class}.mp4"
+    if direct.exists():
+        return direct
+    candidates = sorted(
+        media_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    if candidates:
+        return candidates[0]
+    raise RenderError(f"Manim exited successfully but produced no .mp4 under {media_dir}")
+
+
+def iter_render_scene(
+    code: str,
+    file_class: str = "GenScene",
+    aspect_ratio: Union[str, None] = None,
+    workdir: Union[str, None] = None,
+    quality: Union[str, None] = None,
+):
+    """Render `code` to an MP4, yielding progress dicts and finally {"video_path": ...}.
+
+    Raises RenderError (with the captured log) if Manim fails. On success the
+    returned path lives inside `workdir`, so the caller owns cleanup; a workdir
+    created here is only removed automatically when the render fails.
+    """
+    owns_workdir = workdir is None
+    workdir = Path(workdir or tempfile.mkdtemp(prefix="genmanim-"))
+    workdir.mkdir(parents=True, exist_ok=True)
+    scene_path = workdir / "scene.py"
+    media_dir = workdir / "media"
+    scene_path.write_text(
+        build_scene_source(code, aspect_ratio, quality), encoding="utf-8"
+    )
+
+    command = [
+        "manim",
+        "render",
+        str(scene_path),
+        file_class,
+        "--format=mp4",
+        "--media_dir",
+        str(media_dir),
+        "--custom_folders",
+        "--disable_caching",
+    ]
+
+    # stderr is merged into stdout: reading two pipes with alternating blocking
+    # readline() calls deadlocks as soon as one stream is quiet, which is the
+    # normal case for Manim (it logs progress to stderr only).
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        cwd=str(workdir),
+        bufsize=0,
+    )
+
+    log_lines = []
+    state = {"animation": -1, "percentage": 0}
+
+    def parse(line: str):
+        """Yield progress events for one line of Manim output."""
+        log_lines.append(line)
+        print("MANIM:", line, flush=True)
+
+        animation_match = re.search(r"Animation (\d+):", line)
+        if animation_match:
+            new_animation = int(animation_match.group(1))
+            if new_animation != state["animation"]:
+                state["animation"] = new_animation
+                state["percentage"] = 0
+                yield {"animationIndex": new_animation, "percentage": 0}
+
+        percentage_match = re.search(r"(\d+)%", line)
+        if percentage_match:
+            new_percentage = int(percentage_match.group(1))
+            if new_percentage != state["percentage"]:
+                state["percentage"] = new_percentage
+                yield {
+                    "animationIndex": state["animation"],
+                    "percentage": new_percentage,
+                }
+
+    # Read the raw fd rather than iterating the stream: Manim draws progress with
+    # carriage returns, so line iteration would withhold every update until the
+    # render finished. os.read returns as soon as any bytes are available.
+    fd = process.stdout.fileno()
+    buffer = ""
+    try:
+        while True:
+            data = os.read(fd, 4096)
+            if not data:
+                break
+            buffer += data.decode("utf-8", errors="replace")
+            parts = re.split(r"[\r\n]", buffer)
+            buffer = parts.pop()
+            for part in parts:
+                if part.strip():
+                    yield from parse(part)
+        if buffer.strip():
+            yield from parse(buffer)
+    finally:
+        process.stdout.close()
+        process.wait()
+
+    log = "\n".join(log_lines)
+    if process.returncode != 0:
+        if owns_workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
+        raise RenderError(f"Manim exited with code {process.returncode}", log)
+
+    yield {"video_path": str(_find_rendered_mp4(media_dir, file_class))}
+
+
+def publish_video(
+    video_file_path: str, video_storage_file_name: str, base_url: Union[str, None] = None
+) -> str:
+    """Move the rendered file to its final home and return a URL for it."""
+    if use_local_storage():
+        return move_to_public_folder(video_file_path, video_storage_file_name, base_url)
+    return upload_to_google_storage(video_file_path, video_storage_file_name)
+
 
 @video_rendering_bp.route("/v1/video/rendering", methods=["POST"])
 def render_video():
-    # generate code
-    body = request.json
+    body = request.json or {}
     prompt_content = body.get("prompt", "")
-    model = body.get("model", "gpt-4o")
-    #model = body.get("model", "gpt-4.1-mini")
+    # None -> resolve_model() picks based on which provider key is configured
+    model = body.get("model")
     domain = body.get("domain", "default")
-
-    # Get the API key from the request headers
-    # api_key = request.headers.get('X-API-Key')
-    
-    # if not api_key:
-    #     return jsonify({"error": "API key is missing"}), 401
-    
-    # Validate the API key and get the user ID
-    # user_id = get_user_by_api_key(api_key)
-    
-    # if not user_id:
-    #     return jsonify({"error": "Invalid API key"}), 401
-    
-    # Now that we have a valid user_id, create a run
-    # run_id = create_run_on_user(user_id, "video")
-    code = generate_llm_code(prompt_content, model, domain)
-    #file_name = request.json.get("file_name")
-    file_class = request.json.get("file_class", "GenScene")
-
-    user_id = request.json.get("user_id") or str(uuid.uuid4())
-    project_name = request.json.get("project_name")
-    iteration = request.json.get("iteration")
+    file_class = body.get("file_class", "GenScene")
+    user_id = body.get("user_id") or str(uuid.uuid4())
+    project_name = body.get("project_name")
+    iteration = body.get("iteration")
     # Aspect Ratio can be: "16:9" (default), "1:1", "9:16"
-    aspect_ratio = request.json.get("aspect_ratio")
-    # Stream the percentage of animation it shown in the error
-    stream = request.json.get("stream", False)
+    aspect_ratio = body.get("aspect_ratio")
+    # low | medium | high | ultra -- see QUALITY_SHORT_EDGE
+    quality = body.get("quality")
+    stream = body.get("stream", False)
+
     video_storage_file_name = f"video-{user_id}-{project_name}-{iteration}"
-    # Determine frame size and width based on aspect ratio
-    frame_size, frame_width = get_frame_config(aspect_ratio)
-    # Modify the Manim script to include configuration settings
-    modified_code = f"""
-{extract_code_from_markdown(code)}
-    """
-    # Create a unique file name
-    file_name = f"scene_{os.urandom(2).hex()}.py"
+    # Captured here so the streaming generator never touches the request context.
+    base_url = request.host_url
 
-    # Adjust the path to point to /api/public/
-    api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
-    public_dir = os.path.join(api_dir, "routes")
-    os.makedirs(public_dir, exist_ok=True)  # Ensure the public directory exists
-    file_path = os.path.join(public_dir, file_name)
-    #print(f"11111====={api_dir} | {public_dir} file_path at: {file_path} {os.path.dirname(os.path.realpath(__file__))}")
-    # Write the code to the file
-    with open(file_path, "w") as f:
-        f.write(modified_code)
+    try:
+        code = generate_llm_code(prompt_content, model, domain)
+    except CodeGenerationError as e:
+        return jsonify({"error": str(e)}), 502
 
-    def render_video():
+    def events():
+        workdir = tempfile.mkdtemp(prefix="genmanim-")
         try:
-            command_list = [
-                "manim",
-                file_path,  # Use the full path to the file
-                file_class,
-                "--format=mp4",
-                "--media_dir",
-                ".",
-                "--custom_folders",
-            ]
-            current_dir = os.path.dirname(os.path.realpath(__file__)) if '__file__' in globals() else os.getcwd()
-            process = subprocess.Popen(
-                command_list,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=current_dir,
-                text=True,
-                bufsize=1,  # Ensure the output is in text mode and line-buffered
-            )
-            current_animation = -1
-            current_percentage = 0
-            error_output = []
-            in_error = False
-
-            while True:
-                output = process.stdout.readline()
-                error = process.stderr.readline()
-
-                if output == "" and error == "" and process.poll() is not None:
-                    break
-
-                if output:
-                    print("STDOUT:", output.strip())
-                if error:
-                    print("STDERR:", error.strip())
-                    error_output.append(error.strip())
-
-                # Check for critical errors
-                if "is not in the script" in error:
-                    in_error = True
-                    continue
-
-                # Check for start of error
-                if "Traceback (most recent call last)" in error:
-                    in_error = True
-                    continue
-
-                # If we're in an error state, keep accumulating the error message
-                if in_error:
-                    if error.strip() == "":
-                        # Empty line might indicate end of traceback
-                        in_error = False
-                        full_error = "\n".join(error_output)
-                        yield f'{{"error": {json.dumps(full_error)}}}\n'
-                        return
-                    continue
-
-                animation_match = re.search(r"Animation (\d+):", error)
-                if animation_match:
-                    new_animation = int(animation_match.group(1))
-                    if new_animation != current_animation:
-                        current_animation = new_animation
-                        current_percentage = 0
-                        yield f'{{"animationIndex": {current_animation}, "percentage": 0}}\n'
-
-                percentage_match = re.search(r"(\d+)%", error)
-                if percentage_match:
-                    new_percentage = int(percentage_match.group(1))
-                    if new_percentage != current_percentage:
-                        current_percentage = new_percentage
-                        yield f'{{"animationIndex": {current_animation}, "percentage": {current_percentage}}}\n'
-
-            if process.returncode == 0:
-                # Update this part
-                video_file_path = os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)),
-                    f"{file_class or 'GenScene'}.mp4"
-                )
-                #print(f"2222====={os.path.dirname(os.path.realpath(__file__))} | video_file_path at: {video_file_path}")
-
-                # Looking for video file at: {video_file_path}
-
-                if not os.path.exists(video_file_path):
-                    #  Video file not found. Searching in parent directory...
-                    video_file_path = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
-                        f"{file_class or 'GenScene'}.mp4"
+            for event in iter_render_scene(
+                code, file_class, aspect_ratio, workdir, quality
+            ):
+                if "video_path" in event:
+                    video_url = publish_video(
+                        event["video_path"], video_storage_file_name, base_url
                     )
-                    # New video file path is: {video_file_path}
-
-                if os.path.exists(video_file_path):
-                    print(f"Video file found at: {video_file_path}")
+                    yield {"message": "Video generation completed", "video_url": video_url}
                 else:
-                    print(f"Video file not found. Files in current directory: {os.listdir(os.path.dirname(video_file_path))}")
-                    raise FileNotFoundError(f"Video file not found at {video_file_path}")
-
-                print(f"Files in video file directory: {os.listdir(os.path.dirname(video_file_path))}")
-
-                if USE_LOCAL_STORAGE:
-                    # Pass request.host_url if available
-                    base_url = (
-                        request.host_url
-                        if request and hasattr(request, "host_url")
-                        else None
-                    )
-                    video_url = move_to_public_folder(
-                        video_file_path, video_storage_file_name, base_url
-                    )
-                else:
-                    # video_url = upload_to_azure_storage(
-                    #     video_file_path, video_storage_file_name
-                    # )
-                    print(f"upload_to_google_storage:{video_file_path}, {video_storage_file_name}")
-                    video_url = upload_to_google_storage(
-                        video_file_path, video_storage_file_name
-                    )
-                if stream:
-                    yield f'{{ "video_url": "{video_url}" }}\n'
-                    sys.stdout.flush()
-                else:
-                    yield {
-                        "message": "Video generation completed",
-                        "video_url": video_url,
-                    }
-            else:
-                full_error = "\n".join(error_output)
-                yield f'{{"error": {json.dumps(full_error)}}}\n'
-
+                    yield event
+        except RenderError as e:
+            yield {"error": str(e), "log": e.log}
         except Exception as e:
-            print(f"Unexpected error: {str(e)}")
             traceback.print_exc()
-            print(f"Files in current directory after error: {os.listdir('.')}")
-            yield f'{{"error": "Unexpected error occurred: {str(e)}"}}\n'
+            yield {"error": f"Unexpected error occurred: {e}"}
         finally:
-            # Remove the temporary Python file
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    print(f"Removed temporary file: {file_path}")
-                # Remove the video file
-                if os.path.exists(video_file_path):
-                    os.remove(video_file_path)
-                    print(f"Removed temporary video file: {video_file_path}")
-            except Exception as e:
-                print(f"Error removing temporary file {file_path}: {e}")
+            shutil.rmtree(workdir, ignore_errors=True)
 
     if stream:
-        # TODO: If the `render_video()` fails, or it's sending {"error"}, be sure to add `500`
-        return Response(
-            render_video(), content_type="text/event-stream", status=207
-        )
-    else:
-        video_url = None
-        try:
-            for result in render_video():  # Iterate through the generator
-                print(f"Generated result: {result}")  # Debug print
-                if isinstance(result, dict):
-                    if "video_url" in result:
-                        video_url = result["video_url"]
-                    elif "error" in result:
-                        raise Exception(result["error"])
+        def ndjson():
+            for event in events():
+                yield json.dumps(event) + "\n"
+                sys.stdout.flush()
 
-            if video_url:
-                return (
-                    jsonify(
-                        {
-                            "message": "Video generation completed",
-                            "video_url": video_url,
-                        }
-                    ),
-                    200,
-                )
-            else:
-                return (
-                    jsonify(
-                        {
-                            "message": "Video generation completed, but no URL was found"
-                        }
-                    ),
-                    200,
-                )
-        except StopIteration:
-            if video_url:
-                return (
-                    jsonify(
-                        {
-                            "message": "Video generation completed",
-                            "video_url": video_url,
-                        }
-                    ),
-                    200,
-                )
-            else:
-                return (
-                    jsonify(
-                        {
-                            "message": "Video generation completed, but no URL was found"
-                        }
-                    ),
-                    200,
-                )
-        except Exception as e:
-            print(f"Error in non-streaming mode: {e}")
-            return jsonify({"error": str(e)}), 500
+        return Response(ndjson(), content_type="text/event-stream", status=207)
+
+    result = None
+    for event in events():
+        if "video_url" in event or "error" in event:
+            result = event
+    if result is None:
+        return jsonify({"error": "Renderer produced no result"}), 500
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result), 200
 
 
 @video_rendering_bp.route("/v1/video/exporting", methods=["POST"])
@@ -517,63 +610,65 @@ def str_to_bool(value):
 
 @video_rendering_bp.route("/v1/video/play", methods=["GET"])
 def run_manim_render():
-    """
-    运行 Manim 渲染生成的 Python 文件并输出为视频
-    :param file_path: 生成的 Python 文件路径
-    :param output_dir: 输出视频目录
+    """Render a prompt to video via GET, reusing a cached copy when one exists.
+
+    `save=true` (the default) reuses a previously rendered video for the same
+    prompt instead of paying for a new LLM call and render.
     """
     prompt = request.args.get("prompt")
     if not prompt:
-        return {"error": "Missing prompt"}, 400
-    flag_str = request.args.get("save", default="True")
-    save = str_to_bool(flag_str)
-    video_storage_file_name = to_fixed_hash(prompt)
-    cloud_file_name = f"{video_storage_file_name}.mp4"
-    json_file = os.getenv("GOOGLE_CLOUD_FILE")
-    bucket_name = os.getenv("GOOGLE_BUCKET_NAME")
-    client = storage.Client.from_service_account_json(json_file)
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(cloud_file_name)
-    # check gcs
-    if save and blob.exists():
-        return {"video_url": f"https://storage.googleapis.com/{bucket_name}/{cloud_file_name}"}, 200
-    model = request.args.get("model", "gpt-4o")
+        return jsonify({"error": "Missing prompt"}), 400
+
+    save = str_to_bool(request.args.get("save", default="True"))
+    model = request.args.get("model")
     domain = request.args.get("domain", "default")
-    file_name = f"scene.py"
-    api_dir = os.path.dirname(os.path.dirname(__file__))  # Go up one level from routes
-    public_dir = os.path.join(api_dir, "routes")
-    os.makedirs(public_dir, exist_ok=True)  # Ensure the public directory exists
-    file_path = os.path.join(public_dir, file_name)
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-    code = generate_llm_code(prompt, model, domain)
-    modified_code = extract_code_from_markdown(code)
-    # Write the code to the file
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(modified_code)
-    output_dir = os.path.dirname(os.path.realpath(__file__)) if '__file__' in globals() else os.getcwd()
-    print(output_dir)
-    command = [
-        "manim",
-        "-pql",  # 使用较快预设（你也可以用 -pqh 或 -pqm）
-        file_path,
-        "GenScene",
-        "--media_dir",
-        output_dir,
-    ]
+    aspect_ratio = request.args.get("aspect_ratio")
+    quality = request.args.get("quality")
+    video_storage_file_name = to_fixed_hash(prompt)
+
+    if save:
+        cached = find_cached_video(video_storage_file_name, request.host_url)
+        if cached:
+            return jsonify({"video_url": cached}), 200
 
     try:
-        subprocess.run(command, check=True)
-        print(f"✅ Manim 渲染完成，输出在：{output_dir}")
-        video_path = f"{output_dir}/videos/scene/480p15/"  # 你渲染生成的视频路径
-        if os.path.exists(video_path):
-            blob.upload_from_filename(f"{video_path}/GenScene.mp4")
-            return {"video_url": blob.public_url}, 200
-            # video_url = upload_to_google_storage(
-            #     f"{video_path}/GenScene.mp4", video_storage_file_name
-            # )
-            # return send_from_directory(video_path, "GenScene.mp4")
-        else:
-            return {"error": "Video not found"}, 400
-    except subprocess.CalledProcessError as e:
-        return {"error": "Video not found"}, 400
+        code = generate_llm_code(prompt, model, domain)
+    except CodeGenerationError as e:
+        return jsonify({"error": str(e)}), 502
+
+    workdir = tempfile.mkdtemp(prefix="genmanim-")
+    try:
+        video_path = None
+        for event in iter_render_scene(code, "GenScene", aspect_ratio, workdir, quality):
+            if "video_path" in event:
+                video_path = event["video_path"]
+        if not video_path:
+            return jsonify({"error": "Renderer produced no video"}), 500
+        video_url = publish_video(video_path, video_storage_file_name, request.host_url)
+        return jsonify({"video_url": video_url}), 200
+    except RenderError as e:
+        return jsonify({"error": str(e), "log": e.log}), 500
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def find_cached_video(
+    video_storage_file_name: str, base_url: Union[str, None] = None
+) -> Union[str, None]:
+    """Return a URL for an already-rendered video, or None if it isn't cached."""
+    file_name = f"{video_storage_file_name}.mp4"
+    if use_local_storage():
+        public_folder = Path(__file__).parent.parent / "public"
+        if (public_folder / file_name).exists():
+            url_base = (base_url or BASE_URL).rstrip("/")
+            return f"{url_base}/public/{file_name}"
+        return None
+
+    from google.cloud import storage  # optional dependency
+
+    bucket_name = os.getenv("GOOGLE_BUCKET_NAME")
+    client = storage.Client.from_service_account_json(os.getenv("GOOGLE_CLOUD_FILE"))
+    blob = client.bucket(bucket_name).blob(file_name)
+    if blob.exists():
+        return f"https://storage.googleapis.com/{bucket_name}/{file_name}"
+    return None

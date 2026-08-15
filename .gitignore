@@ -168,5 +168,8 @@ temp_files/
 datasets/promit/API_Key.cfg
 .cursorrules
 api/routes/public/*
+# Rendered videos, but keep the directory itself
+api/public/*
+!api/public/.gitkeep
 .qodo
 .idea/
