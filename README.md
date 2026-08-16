@@ -45,6 +45,18 @@ User prompt
 - **Streaming progress** — per-animation percentage over NDJSON
 - **Pluggable storage** — local filesystem by default; Google Cloud Storage or Azure Blob optional
 
+## Examples
+
+Every one of these came from a single sentence of prompt. Click a thumbnail to play the video; each folder under [`demos/`](demos/) also holds the exact prompt, the generated scene, and a timestamped log of the run.
+
+|  |  |
+|---|---|
+| <a href="demos/bond-price-yield/out.mp4"><img src="demos/bond-price-yield/poster.jpg" width="400" alt="Bond price vs. yield"></a><br><b>Bond price vs. yield</b><br><sub>16:9 · 93s · 1 attempt · 9.7¢</sub> | <a href="demos/fourier-square-wave/out.mp4"><img src="demos/fourier-square-wave/poster.jpg" width="400" alt="Fourier series to a square wave"></a><br><b>Fourier series to a square wave</b><br><sub>16:9 · 91s · 1 attempt · 8.8¢</sub> |
+| <a href="demos/pythagorean-rearrangement/out.mp4"><img src="demos/pythagorean-rearrangement/poster.jpg" width="260" alt="Pythagorean proof by rearrangement"></a><br><b>Pythagorean proof by rearrangement</b><br><sub>9:16 · 96s · 1 attempt · 16.6¢</sub> | <a href="demos/black-scholes-derivation/out.mp4"><img src="demos/black-scholes-derivation/poster.jpg" width="400" alt="Black-Scholes, derived"></a><br><b>Black-Scholes, derived</b><br><sub>16:9 · 133s · 1 attempt · 11.9¢</sub> |
+| <a href="demos/central-limit-dice/out.mp4"><img src="demos/central-limit-dice/poster.jpg" width="400" alt="Central limit theorem, with dice"></a><br><b>Central limit theorem, with dice</b><br><sub>16:9 · 104s · 1 attempt · 10.4¢</sub> |  |
+
+All narrated, rendered at 480p. Total cost across the five: about 58 cents.
+
 ## Requirements
 
 **Python 3.11.** Not 3.12+: `manim==0.18.0` pins `Pillow 9.5.0`, which publishes no wheels for 3.12 and fails to build against current libwebp.
@@ -269,5 +281,4 @@ generative-manim/
 
 ## License
 
-Intended to be MIT, but there is no `LICENSE` file in the repo yet — add one before
-publishing, since without it the code is technically unlicensed.
+MIT.
