@@ -1,0 +1,18 @@
+{
+  "slug": "pythagorean-rearrangement",
+  "model": "claude-opus-5",
+  "attempts": 1,
+  "llm_calls": 1,
+  "input_tokens": 1860,
+  "output_tokens": 6258,
+  "cost_cents": 16.575,
+  "total_ms": 150228,
+  "aspect_ratio": "9:16",
+  "quality": "low",
+  "resolution": "480x854",
+  "duration_s": 96.75,
+  "frames": 5805,
+  "size_bytes": 2102838,
+  "has_audio": true,
+  "voiceover": true
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "slug": "bond-price-yield",
+    "prompt": "Show how a bond's price moves inversely with its yield",
+    "aspect_ratio": "16:9",
+    "duration_s": 93.02,
+    "model": "claude-opus-5",
+    "cost_cents": 9.7,
+    "attempts": 1,
+    "total_ms": 143420,
+    "has_video": true,
+    "error": null
+  },
+  {
+    "slug": "fourier-square-wave",
+    "prompt": "Visualize a Fourier series converging to a square wave",
+    "aspect_ratio": "16:9",
+    "duration_s": 91.95,
+    "model": "claude-opus-5",
+    "cost_cents": 8.8075,
+    "attempts": 1,
+    "total_ms": 101027,
+    "has_video": true,
+    "error": null
+  },
+  {
+    "slug": "pythagorean-rearrangement",
+    "prompt": "Prove the Pythagorean theorem by rearranging four triangles",
+    "aspect_ratio": "9:16",
+    "duration_s": 96.75,
+    "model": "claude-opus-5",
+    "cost_cents": 16.575,
+    "attempts": 1,
+    "total_ms": 150228,
+    "has_video": true,
+    "error": null
+  },
+  {
+    "slug": "black-scholes-derivation",
+    "prompt": "Derive the Black-Scholes PDE step by step",
+    "aspect_ratio": "16:9",
+    "duration_s": 133.23,
+    "model": "claude-opus-5",
+    "cost_cents": 11.9375,
+    "attempts": 1,
+    "total_ms": 173558,
+    "has_video": true,
+    "error": null
+  },
+  {
+    "slug": "central-limit-dice",
+    "prompt": "Show the central limit theorem by summing dice rolls",
+    "aspect_ratio": "16:9",
+    "duration_s": 104.4,
+    "model": "claude-opus-5",
+    "cost_cents": 10.385,
+    "attempts": 1,
+    "total_ms": 151137,
+    "has_video": true,
+    "error": null
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "slug": "fourier-square-wave",
+  "model": "claude-opus-5",
+  "attempts": 1,
+  "llm_calls": 1,
+  "input_tokens": 1855,
+  "output_tokens": 3152,
+  "cost_cents": 8.8075,
+  "total_ms": 101027,
+  "aspect_ratio": "16:9",
+  "quality": "low",
+  "resolution": "854x480",
+  "duration_s": 91.95,
+  "frames": 5517,
+  "size_bytes": 2320187,
+  "has_audio": true,
+  "voiceover": true
+}
