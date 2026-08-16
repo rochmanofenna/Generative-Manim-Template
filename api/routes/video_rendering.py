@@ -12,8 +12,16 @@ from typing import Union
 import uuid
 import time
 import requests
-from openai import OpenAI
 from pathlib import Path
+
+from api.pipeline.llm import (  # re-exported: callers and tests import these here
+    CodeGenerationError,
+    LLMResult,
+    generate_code,
+    has_api_key,
+    resolve_model,
+)
+
 video_rendering_bp = Blueprint("video_rendering", __name__)
 
 
@@ -251,14 +259,13 @@ _VOICEOVER_SCENE_GUIDE = r"""
         3. Narration text is spoken aloud, so write plain English prose only.
            No LaTeX, no markdown, no symbols: say "a squared plus b squared"
            rather than "a^2 + b^2", and "percent" rather than "%".
-        4. Keep each narration segment to one or two sentences, and make the
-           narration explain what is on screen at that moment.
+        4. Keep each narration segment to one or two short sentences and UNDER
+           250 CHARACTERS. This is a hard limit: the text-to-speech endpoint
+           rejects longer strings and the render fails. Split long explanations
+           across several voiceover blocks, each wrapping its own animation.
         5. Call self.wait() only outside voiceover blocks.
+        6. Aim for 6 to 10 voiceover blocks in total.
 """
-
-
-class CodeGenerationError(RuntimeError):
-    """Raised when the LLM fails to return usable Manim code."""
 
 
 def build_system_prompt(domain: str = "default", voiceover: bool = True) -> str:
@@ -273,72 +280,14 @@ def build_system_prompt(domain: str = "default", voiceover: bool = True) -> str:
     )
 
 
-# Generated Manim scenes routinely run past 1k tokens; too small a cap truncates
-# the class mid-definition and the render fails with a SyntaxError.
-LLM_MAX_TOKENS = 16000
-
-DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
-DEFAULT_OPENAI_MODEL = "gpt-4o"
-
-
-def has_api_key(var_name: str) -> bool:
-    """True when the env var holds something that could actually be a key.
-
-    Copying .env.example leaves placeholders like "sk-..." behind; those are
-    non-empty, so a bare truthiness check would treat an unconfigured provider
-    as configured and route requests to it. Real keys are far longer than this.
-    """
-    return len((os.getenv(var_name) or "").strip()) >= 20
-
-
-def resolve_model(requested: Union[str, None] = None) -> str:
-    """Pick a model, preferring whichever provider actually has credentials.
-
-    Lets a user with only ANTHROPIC_API_KEY set call the API without having to
-    name a model on every request.
-    """
-    if requested:
-        return requested
-    configured = os.getenv("DEFAULT_MODEL")
-    if configured:
-        return configured
-    if has_api_key("ANTHROPIC_API_KEY") and not has_api_key("OPENAI_API_KEY"):
-        return DEFAULT_ANTHROPIC_MODEL
-    return DEFAULT_OPENAI_MODEL
-
-
-def _generate_with_anthropic(system_prompt: str, prompt_content: str, model: str) -> str:
-    import anthropic  # imported lazily so the OpenAI path works without it
-
-    # No temperature: it is rejected with a 400 on Claude Opus 5 and the 4.7+
-    # family. Steer via the system prompt instead.
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    response = client.messages.create(
-        model=model,
-        max_tokens=LLM_MAX_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": prompt_content}],
-    )
-    # Check before reading content: a refusal returns HTTP 200 with content
-    # empty or partial, so indexing blocks[0] would mislead or crash.
-    if response.stop_reason == "refusal":
-        raise CodeGenerationError("Claude declined this prompt; try rephrasing it")
-    return "".join(block.text for block in response.content if block.type == "text")
-
-
-def _generate_with_openai(system_prompt: str, prompt_content: str, model: str) -> str:
-    # Constructed here, not at module import: instantiating OpenAI() raises
-    # immediately when OPENAI_API_KEY is unset.
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_content},
-        ],
-        temperature=0.2,
-    )
-    return response.choices[0].message.content
+def generate_llm_result(
+    prompt_content: str,
+    model: Union[str, None] = None,
+    domain: str = "default",
+    voiceover: bool = True,
+) -> LLMResult:
+    """Generate Manim source, carrying model / latency / token usage with it."""
+    return generate_code(build_system_prompt(domain, voiceover), prompt_content, model)
 
 
 def generate_llm_code(
@@ -347,26 +296,8 @@ def generate_llm_code(
     domain: str = "default",
     voiceover: bool = True,
 ) -> str:
-    """Return Manim source code for the prompt, or raise CodeGenerationError.
-
-    Dispatches on the model name: `claude-*` goes to Anthropic, anything else to
-    OpenAI. This is a plain helper, not a view function -- it must never return a
-    Flask response tuple, because callers feed the result straight to the renderer.
-    """
-    model = resolve_model(model)
-    system_prompt = build_system_prompt(domain, voiceover)
-    try:
-        if model.startswith("claude-"):
-            code = _generate_with_anthropic(system_prompt, prompt_content, model)
-        else:
-            code = _generate_with_openai(system_prompt, prompt_content, model)
-    except CodeGenerationError:
-        raise
-    except Exception as e:
-        raise CodeGenerationError(f"LLM request failed: {e}") from e
-    if not code:
-        raise CodeGenerationError("LLM returned no code")
-    return code
+    """Return just the source, for callers that don't need usage accounting."""
+    return generate_llm_result(prompt_content, model, domain, voiceover).text
 
 class RenderError(RuntimeError):
     """Raised when Manim fails to produce a video. Carries the render log."""
